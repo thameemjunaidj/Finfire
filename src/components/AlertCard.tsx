@@ -15,6 +15,8 @@ export function AlertCard({ alert, onPress }: { alert: FinancialAlert; onPress?:
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={`${titleCase(alert.severity)} warning: ${alert.title}. ${alert.message}`}
+      accessibilityHint={onPress ? 'Opens evidence and recommended action' : undefined}
       onPress={onPress}
       style={({ pressed }) => [styles.card, { borderLeftColor: accent, opacity: pressed ? 0.8 : 1 }]}
     >

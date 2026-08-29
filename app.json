@@ -2,7 +2,9 @@
   "expo": {
     "name": "Fin Extinguisher",
     "slug": "finfire",
-    "version": "1.0.0",
+    "version": "1.1.0",
+    "description": "Put out money problems before they start with explainable warnings and forecasts.",
+    "scheme": "finfire",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -10,18 +12,24 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#080D1B"
+      "backgroundColor": "#000000"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.thameemjunaidj.finfire"
     },
     "android": {
+      "package": "com.thameemjunaidj.finfire",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#080D1B"
+        "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#000000",
+      "barStyle": "light-content"
     },
     "plugins": [
       "expo-notifications",

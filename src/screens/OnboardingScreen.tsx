@@ -5,27 +5,40 @@ import { FinButton } from '../components/FinButton';
 import { FormField } from '../components/FormField';
 import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
-import { APP_NAME } from '../theme/brand';
+import { APP_NAME, APP_TAGLINE } from '../theme/brand';
 import { UserProfile } from '../types/finance';
+import { addDays, toIsoDate } from '../utils/dates';
+import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
 
 export function OnboardingScreen() {
+  const today = toIsoDate(new Date());
   const { useDemoAccount, completeCustomSetup } = useFinance();
   const [custom, setCustom] = useState(false);
   const [name, setName] = useState('');
   const [income, setIncome] = useState('');
   const [balance, setBalance] = useState('');
-  const [nextIncomeDate, setNextIncomeDate] = useState('2026-09-01');
+  const [nextIncomeDate, setNextIncomeDate] = useState(addDays(today, 14));
   const [essentials, setEssentials] = useState('');
-  const canContinue = name.trim() && Number(income) > 0 && Number(balance) >= 0 && /^\d{4}-\d{2}-\d{2}$/.test(nextIncomeDate);
+  const monthlyIncome = parsePositiveMoney(income);
+  const availableBalance = parseNonNegativeMoney(balance);
+  const essentialMonthlyExpenses = essentials.trim() ? parseNonNegativeMoney(essentials) : 0;
+  const canContinue = Boolean(
+    name.trim()
+    && monthlyIncome !== null
+    && availableBalance !== null
+    && essentialMonthlyExpenses !== null
+    && isDateOnOrAfter(nextIncomeDate, today),
+  );
   const submit = () => {
+    if (!canContinue || monthlyIncome === null || availableBalance === null || essentialMonthlyExpenses === null) return;
     const profile: UserProfile = {
       id: `profile-${Date.now()}`,
       name: name.trim(),
-      monthlyIncome: Number(income),
-      availableBalance: Number(balance),
+      monthlyIncome,
+      availableBalance,
       nextIncomeDate,
-      essentialMonthlyExpenses: Number(essentials) || 0,
-      analysisDate: new Date().toISOString().slice(0, 10),
+      essentialMonthlyExpenses,
+      analysisDate: today,
     };
     completeCustomSetup(profile);
   };
@@ -34,7 +47,7 @@ export function OnboardingScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.brandIcon}><Feather name="shield" size={34} color={colors.primary} /></View>
         <Text style={styles.brand}>{APP_NAME}</Text>
-        <Text style={styles.tagline}>Detect financial damage before it happens.</Text>
+        <Text style={styles.tagline}>{APP_TAGLINE}</Text>
         {!custom ? (
           <>
             <View style={styles.heroCard}>
@@ -53,10 +66,10 @@ export function OnboardingScreen() {
             <Text style={styles.formTitle}>Set up your profile</Text>
             <Text style={styles.formHelper}>You can add or import transactions after this step.</Text>
             <FormField label="Your name" value={name} onChangeText={setName} placeholder="e.g. Thameem" />
-            <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="numeric" placeholder="48000" />
-            <FormField label="Available balance (₹)" value={balance} onChangeText={setBalance} keyboardType="numeric" placeholder="18500" />
-            <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder="2026-09-01" />
-            <FormField label="Essential monthly expenses (₹)" value={essentials} onChangeText={setEssentials} keyboardType="numeric" placeholder="14500" />
+            <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="48000" />
+            <FormField label="Available balance (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
+            <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder={addDays(today, 14)} />
+            <FormField label="Essential monthly expenses (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
             <FinButton label="Create local profile" icon="arrow-right" disabled={!canContinue} onPress={submit} />
             <FinButton label="Back" variant="ghost" onPress={() => setCustom(false)} style={styles.secondaryButton} />
           </View>

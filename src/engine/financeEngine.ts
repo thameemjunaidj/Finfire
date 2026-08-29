@@ -9,8 +9,8 @@ import {
   SimulationResult,
   Transaction,
 } from '../types/finance';
-import { addDays, daysBetween, daysInMonth, monthKey, monthLabel, parseLocalDate } from '../utils/dates';
-import { formatCurrency } from '../utils/format';
+import { addDays, daysBetween, daysInMonth, monthKey, monthLabel, parseLocalDate, toIsoDate } from '../utils/dates';
+import { formatCurrency, formatDate } from '../utils/format';
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 const round = (value: number) => Math.round(value);
@@ -37,7 +37,7 @@ function createAlert(alert: FinancialAlert): FinancialAlert {
 
 export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSummary {
   const { profile, transactions, recurringPayments } = dataset;
-  const asOf = profile.analysisDate ?? new Date().toISOString().slice(0, 10);
+  const asOf = profile.analysisDate ?? toIsoDate(new Date());
   const currentKey = monthKey(asOf);
   const elapsedDays = Math.max(1, parseLocalDate(asOf).getDate());
   const debitTransactions = transactions.filter((item) => item.direction === 'debit' && item.date <= asOf);
@@ -56,7 +56,9 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
     : 0;
 
   const alerts: FinancialAlert[] = [];
-  const spendingSurgeScore = clamp((Math.max(0, surgePercentage) / 50) * 100, 0, 75);
+  const spendingSurgeScore = surgePercentage >= 10
+    ? clamp((Math.max(0, surgePercentage) / 50) * 100, 0, 75)
+    : 0;
   if (surgePercentage >= 10) {
     const remainingDays = Math.max(1, daysInMonth(asOf) - elapsedDays);
     const safeRemaining = Math.max(0, normalMonthlySpending - currentMonthSpending);
@@ -79,10 +81,13 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   );
   currentBills.forEach((currentBill) => {
     const key = currentBill.recurringGroupId ?? currentBill.merchant.toLowerCase();
-    const previous = debitTransactions.filter((item) => {
-      const itemKey = item.recurringGroupId ?? item.merchant.toLowerCase();
-      return itemKey === key && monthKey(item.date) < currentKey;
-    }).slice(-3);
+    const previous = debitTransactions
+      .filter((item) => {
+        const itemKey = item.recurringGroupId ?? item.merchant.toLowerCase();
+        return itemKey === key && monthKey(item.date) < currentKey;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-3);
     if (!previous.length) return;
     const average = previous.reduce((sum, item) => sum + item.amount, 0) / previous.length;
     const difference = currentBill.amount - average;
@@ -118,7 +123,7 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
         title: `${payment.merchant} price increased`,
         message: `Your recurring charge increased by ${round(increasePercentage)}%.`,
         evidence: `${formatCurrency(payment.previousAmount)} → ${formatCurrency(payment.currentAmount)}`,
-        recommendation: `Review, downgrade, or cancel the plan before ${payment.nextPaymentDate}.`,
+        recommendation: `Review, downgrade, or cancel the plan before ${formatDate(payment.nextPaymentDate, true)}.`,
         impactAmount: increaseAmount,
         componentScore: score,
       }));
@@ -127,13 +132,16 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
 
   const sevenDaysLater = addDays(asOf, 7);
   const upcoming = recurringPayments.filter(
-    (payment) => payment.nextPaymentDate > asOf && payment.nextPaymentDate <= sevenDaysLater,
+    (payment) => payment.nextPaymentDate >= asOf && payment.nextPaymentDate <= sevenDaysLater,
   );
   const upcomingPaymentsTotal = upcoming.reduce((sum, payment) => sum + payment.currentAmount, 0);
   const disposableBalance = Math.max(0, profile.availableBalance);
-  const upcomingRatio = disposableBalance > 0 ? upcomingPaymentsTotal / disposableBalance : 1;
-  const paymentPressureScore = clamp(Math.max((upcoming.length / 5) * 100, upcomingRatio * 100));
-  if (upcoming.length >= 3 || upcomingRatio >= 0.25) {
+  const upcomingRatio = upcomingPaymentsTotal === 0 ? 0 : disposableBalance > 0 ? upcomingPaymentsTotal / disposableBalance : 1;
+  const hasPaymentPressure = upcoming.length >= 3 || upcomingRatio >= 0.25;
+  const paymentPressureScore = hasPaymentPressure
+    ? clamp(Math.max((upcoming.length / 5) * 100, upcomingRatio * 100))
+    : 0;
+  if (hasPaymentPressure) {
     alerts.push(createAlert({
       id: 'payment-pileup',
       type: 'payment_pileup',
@@ -148,7 +156,7 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   }
 
   const essentialDue = recurringPayments
-    .filter((payment) => payment.essential && payment.nextPaymentDate > asOf && payment.nextPaymentDate <= profile.nextIncomeDate)
+    .filter((payment) => payment.essential && payment.nextPaymentDate >= asOf && payment.nextPaymentDate <= profile.nextIncomeDate)
     .reduce((sum, payment) => sum + payment.currentAmount, 0);
   const protectedBalance = Math.max(0, disposableBalance - essentialDue);
   const recentStart = addDays(asOf, -13);
@@ -157,14 +165,16 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   );
   const recentDailyDiscretionarySpend = recentDiscretionary.reduce((sum, item) => sum + item.amount, 0) / 14;
   const daysToIncome = Math.max(1, daysBetween(asOf, profile.nextIncomeDate));
-  const runwayDays = recentDailyDiscretionarySpend > 0
+  const runwayDays = profile.availableBalance <= 0
+    ? 0
+    : recentDailyDiscretionarySpend > 0
     ? Math.max(0, protectedBalance / recentDailyDiscretionarySpend)
     : daysToIncome + 30;
   let runwayScore = 0;
   if (runwayDays <= 7) runwayScore = 100;
   else if (runwayDays <= 14) runwayScore = 75;
   else if (runwayDays <= 21) runwayScore = 45;
-  else runwayScore = 10;
+  else runwayScore = 0;
   if (runwayDays <= 21) {
     const safeDailyCap = daysToIncome > 0 ? protectedBalance / daysToIncome : protectedBalance;
     const severity: AlertSeverity = runwayDays <= 7 ? 'critical' : runwayDays <= 14 ? 'high' : 'watch';
@@ -248,6 +258,8 @@ export function getRiskBand(score: number): RiskBand {
 
 export function simulatePurchase(dataset: FinanceDataset, input: SimulationInput): SimulationResult {
   const before = calculateFinancialSummary(dataset);
+  const currentAnalysisDate = dataset.profile.analysisDate ?? toIsoDate(new Date());
+  const effectiveAnalysisDate = input.proposedDate > currentAnalysisDate ? input.proposedDate : currentAnalysisDate;
   const transaction: Transaction = {
     id: `simulation-${Date.now()}`,
     date: input.proposedDate,
@@ -259,7 +271,11 @@ export function simulatePurchase(dataset: FinanceDataset, input: SimulationInput
     source: 'simulation',
   };
   const afterDataset: FinanceDataset = {
-    profile: { ...dataset.profile, availableBalance: Math.max(0, dataset.profile.availableBalance - input.amount) },
+    profile: {
+      ...dataset.profile,
+      analysisDate: effectiveAnalysisDate,
+      availableBalance: Math.max(0, dataset.profile.availableBalance - input.amount),
+    },
     recurringPayments: [...dataset.recurringPayments],
     transactions: [...dataset.transactions, transaction],
   };

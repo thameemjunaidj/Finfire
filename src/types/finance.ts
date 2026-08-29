@@ -118,72 +118,51 @@ export interface PersistedFinanceState extends FinanceDataset {
   notificationsEnabled: boolean;
 }
 
-/* ------------------------------------------------------------------ */
-/* Forecasting — looking forward instead of back                       */
-/* ------------------------------------------------------------------ */
-
-/** How one spending category is trending, and where it lands if nothing changes. */
 export interface CategoryForecast {
   category: TransactionCategory;
-  /** Spend in the last 7 days. */
   lastWeek: number;
-  /** What a normal week looks like for this category, from the last 28 days. */
   baselineWeek: number;
-  /** Where next week lands if the recent pace continues. */
   projectedNextWeek: number;
-  /** Spend so far this calendar month. */
   monthToDate: number;
-  /** Where this month ends at the current pace. */
   projectedMonthEnd: number;
-  /** A normal month for this category. */
   baselineMonth: number;
-  /** How far above (+) or below (-) normal the projection sits, as a percentage. */
   trendPercentage: number;
-  /** Discretionary categories are the ones a person can actually cut. */
   discretionary: boolean;
 }
 
-/** One concrete, costed suggestion for closing the savings gap. */
 export interface SavingsAction {
   id: string;
   category: TransactionCategory;
   title: string;
   detail: string;
-  /** What following it saves before the month ends. */
   monthlySaving: number;
-  /** What it means per day, which is the only form people can act on. */
   dailyReduction: number;
 }
 
-/** The whole forward-looking picture: where the month lands, and how to change it. */
 export interface SpendingForecast {
   asOf: string;
   daysElapsed: number;
   daysRemaining: number;
-
   lastWeekSpending: number;
   baselineWeeklySpending: number;
   projectedNextWeekSpending: number;
-
   currentMonthSpending: number;
   projectedMonthEndSpending: number;
   baselineMonthlySpending: number;
-
   expectedIncome: number;
-  /** Income minus projected spending — negative means the month ends in the red. */
   projectedSavings: number;
   savingsTarget: number;
-  /** How far short of the target the projection falls. Zero when on track. */
   savingsGap: number;
   onTrack: boolean;
-
-  /** What is being spent per day right now, discretionary only. */
   currentDailyPace: number;
-  /** What could be spent per day and still hit the savings target. */
   safeDailyAllowance: number;
-
   categories: CategoryForecast[];
   actions: SavingsAction[];
+}
+
+export interface TransactionImportSummary {
+  added: number;
+  skippedDuplicates: number;
 }
 
 export const TRANSACTION_CATEGORIES: TransactionCategory[] = [
