@@ -4,12 +4,13 @@ import { Alert, Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-n
 import { useFinance } from '../context/FinanceContext';
 import { scheduleRiskNotification } from '../services/notifications';
 import { colors, radii, spacing } from '../theme/colors';
+import { APP_NAME } from '../theme/brand';
 import { FinButton } from './FinButton';
 
 export function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { notificationsEnabled, setNotificationsEnabled, resetDemo, eraseLocalData } = useFinance();
   const testNotification = async () => {
-    const shown = await scheduleRiskNotification('🔥 FinFire is ready', 'Critical financial warnings will appear here when enabled.');
+    const shown = await scheduleRiskNotification(`🔥 ${APP_NAME} is ready`, 'Critical financial warnings will appear here when enabled.');
     Alert.alert(shown ? 'Notification sent' : 'Unavailable in browser', shown ? 'Check your notification centre.' : 'Test this feature on your phone with Expo Go.');
   };
   const erase = () => Alert.alert('Erase local data?', 'This removes imported and manually entered data from this device.', [
@@ -38,13 +39,13 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
             <Feather name="shield" size={22} color={colors.safe} />
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Offline-first by design</Text>
-              <Text style={styles.rowHelper}>FinFire never asks for bank passwords, PINs, CVVs, or UPI PINs. Imported CSV data is stored locally.</Text>
+              <Text style={styles.rowHelper}>{APP_NAME} never asks for bank passwords, PINs, CVVs, or UPI PINs. Imported CSV data is stored locally.</Text>
             </View>
           </View>
           <FinButton label="Test notification" icon="bell" variant="secondary" onPress={() => void testNotification()} />
           <FinButton label="Restore demo data" icon="refresh-cw" variant="ghost" onPress={() => { resetDemo(); onClose(); }} style={styles.action} />
           <FinButton label="Erase local data" icon="trash-2" variant="danger" onPress={erase} style={styles.action} />
-          <Text style={styles.version}>FinFire prototype · Demo and user-imported data only</Text>
+          <Text style={styles.version}>{APP_NAME} prototype · Demo and user-imported data only</Text>
         </Pressable>
       </Pressable>
     </Modal>

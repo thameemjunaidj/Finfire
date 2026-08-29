@@ -1,5 +1,5 @@
 /**
- * CashCue theme — black, white and red.
+ * FinExtinguisher theme — black, white and red.
  *
  * Three colours only. Black is the ground, white is information, red is
  * attention. That constraint is doing real work here: in a warning app, if

@@ -2,7 +2,7 @@
  * ForecastScreen — "where does this month end, and what would change it?"
  *
  * Home answers what is wrong now. This answers what happens next, which is
- * the whole preventive premise of CashCue.
+ * the whole preventive premise of FinExtinguisher.
  */
 
 import { Feather } from '@expo/vector-icons';

@@ -8,6 +8,7 @@ import { RiskGauge } from '../components/RiskGauge';
 import { Screen, SectionTitle } from '../components/Screen';
 import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
+import { APP_NAME } from '../theme/brand';
 import { FinancialAlert } from '../types/finance';
 import { formatCurrency, riskColor } from '../utils/format';
 
@@ -48,7 +49,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
         </View>
         <SectionTitle title="Urgent warnings" action={<Pressable onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
         {summary.alerts.slice(0, 3).map((alert) => <AlertCard key={alert.id} alert={alert} onPress={() => setSelectedAlert(alert)} />)}
-        {!summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>No urgent warnings</Text><Text style={styles.emptyText}>FinFire will explain any material change it detects.</Text></View> : null}
+        {!summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>No urgent warnings</Text><Text style={styles.emptyText}>{APP_NAME} will explain any material change it detects.</Text></View> : null}
       </Screen>
       <AlertDetailsModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
     </>

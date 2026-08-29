@@ -27,7 +27,7 @@ LogBox.ignoreLogs([
   '`expo-notifications` functionality is not fully supported in Expo Go',
 ]);
 
-function FinFireApp() {
+function FinExtinguisherApp() {
   const { loaded, onboardingComplete, summary } = useFinance();
   const [tab, setTab] = useState<AppTab>('home');
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -57,7 +57,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" backgroundColor={colors.background} />
-      <FinanceProvider><FinFireApp /></FinanceProvider>
+      <FinanceProvider><FinExtinguisherApp /></FinanceProvider>
     </SafeAreaProvider>
   );
 }

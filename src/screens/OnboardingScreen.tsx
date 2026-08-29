@@ -5,6 +5,7 @@ import { FinButton } from '../components/FinButton';
 import { FormField } from '../components/FormField';
 import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
+import { APP_NAME } from '../theme/brand';
 import { UserProfile } from '../types/finance';
 
 export function OnboardingScreen() {
@@ -32,7 +33,7 @@ export function OnboardingScreen() {
     <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.brandIcon}><Feather name="shield" size={34} color={colors.primary} /></View>
-        <Text style={styles.brand}>FinFire</Text>
+        <Text style={styles.brand}>{APP_NAME}</Text>
         <Text style={styles.tagline}>Detect financial damage before it happens.</Text>
         {!custom ? (
           <>

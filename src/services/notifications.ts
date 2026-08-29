@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { APP_NAME } from '../theme/brand';
 
 export async function initializeNotifications(): Promise<void> {
   if (Platform.OS === 'web') return;
@@ -13,7 +14,7 @@ export async function initializeNotifications(): Promise<void> {
       }),
     });
   } catch {
-    // Notification support is optional; the rest of FinFire remains usable.
+    // Notification support is optional; the rest of the app remains usable.
   }
 }
 
@@ -29,7 +30,7 @@ export async function scheduleRiskNotification(title: string, body: string): Pro
     if (status !== 'granted') return false;
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('finfire-alerts', {
-        name: 'FinFire alerts',
+        name: `${APP_NAME} alerts`,
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 150, 250],
         lightColor: '#FF1A0D', // matches colors.primary in the black/white/red theme

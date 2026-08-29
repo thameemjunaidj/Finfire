@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
+import { APP_NAME } from '../theme/brand';
 import { FinancialAlert } from '../types/finance';
 import { severityBackground, severityColor, titleCase } from '../utils/format';
 import { FinButton } from './FinButton';
@@ -25,7 +26,7 @@ export function AlertDetailsModal({ alert, onClose }: { alert: FinancialAlert | 
           </View>
           <Text style={styles.message}>{alert.message}</Text>
           <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>WHY FINFIRE FLAGGED THIS</Text>
+            <Text style={styles.infoLabel}>{`WHY ${APP_NAME.toUpperCase()} FLAGGED THIS`}</Text>
             <Text style={styles.infoText}>{alert.evidence}</Text>
           </View>
           <View style={[styles.infoCard, { borderColor: `${colors.safe}55`, backgroundColor: colors.safeSoft }]}>

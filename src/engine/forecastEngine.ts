@@ -1,7 +1,7 @@
 /**
  * forecastEngine.ts
  *
- * The forward half of CashCue. financeEngine.ts asks "what is wrong right
+ * The forward half of FinExtinguisher. financeEngine.ts asks "what is wrong right
  * now?"; this asks "where does this month end, and what would have to change?"
  *
  * The method, deliberately simple enough to explain to a judge in one breath:

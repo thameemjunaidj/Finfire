@@ -8,6 +8,7 @@ import { Screen } from '../components/Screen';
 import { useFinance } from '../context/FinanceContext';
 import { scheduleRiskNotification } from '../services/notifications';
 import { colors, radii, spacing } from '../theme/colors';
+import { APP_NAME } from '../theme/brand';
 import { SimulationResult, TransactionCategory } from '../types/finance';
 import { formatCurrency, riskColor } from '../utils/format';
 
@@ -30,7 +31,7 @@ export function SimulatorScreen() {
   const notify = async () => {
     if (!result) return;
     const shown = await scheduleRiskNotification(
-      '🔥 FinFire purchase warning',
+      `🔥 ${APP_NAME} purchase warning`,
       `This ${formatCurrency(result.input.amount)} purchase could change your runway from ${result.before.runwayDays} to ${result.after.runwayDays} days.`,
     );
     Alert.alert(shown ? 'Warning sent' : 'Use your phone to test', shown ? 'The local notification is ready.' : 'Browser preview cannot display native notifications.');
@@ -50,7 +51,7 @@ export function SimulatorScreen() {
       {result ? (
         <View style={styles.resultWrap}>
           <View style={[styles.verdict, { borderColor: riskColor(result.verdict), backgroundColor: `${riskColor(result.verdict)}16` }]}>
-            <View><Text style={styles.verdictEyebrow}>FINFIRE VERDICT</Text><Text style={[styles.verdictValue, { color: riskColor(result.verdict) }]}>{result.verdict}</Text></View>
+            <View><Text style={styles.verdictEyebrow}>{`${APP_NAME.toUpperCase()} VERDICT`}</Text><Text style={[styles.verdictValue, { color: riskColor(result.verdict) }]}>{result.verdict}</Text></View>
             <Feather name={result.riskChange > 0 ? 'alert-triangle' : 'check-circle'} size={28} color={riskColor(result.verdict)} />
           </View>
           <View style={styles.comparison}>
@@ -66,7 +67,7 @@ export function SimulatorScreen() {
           <Text style={styles.nonMutation}>Simulation only — your balance and transactions were not changed.</Text>
         </View>
       ) : (
-        <View style={styles.emptyResult}><Feather name="eye" size={26} color={colors.textMuted} /><Text style={styles.emptyTitle}>Your result will appear here</Text><Text style={styles.emptyText}>Try the demo ₹5,000 purchase to see FinFire prevent damage rather than report it later.</Text></View>
+        <View style={styles.emptyResult}><Feather name="eye" size={26} color={colors.textMuted} /><Text style={styles.emptyTitle}>Your result will appear here</Text><Text style={styles.emptyText}>Try the demo ₹5,000 purchase to see {APP_NAME} prevent damage rather than report it later.</Text></View>
       )}
     </Screen>
   );
