@@ -1,8 +1,8 @@
-# FinFire
+# Fin Extinguisher
 
 **Detect financial damage before it happens.**
 
-FinFire is an offline-first financial early-warning app built for DevJams. Instead of only showing where money went, it detects what may go wrong next, explains the evidence, and recommends one concrete action.
+Fin Extinguisher is an offline-first financial early-warning app built for DevJams'26. Instead of only showing where money went, it detects what may go wrong next, explains the evidence, and recommends one concrete action.
 
 ## What works
 
@@ -26,12 +26,12 @@ FinFire is an offline-first financial early-warning app built for DevJams. Inste
 
 ## Demo story
 
-The included account belongs to Arjun, a 22-year-old first-job professional. FinFire finds five planted risks:
+The included account belongs to Arjun, a 22-year-old first-job professional. Fin Extinguisher as five planted risks:
 
 1. Spending is accelerating beyond Arjun's normal monthly level.
 2. The electricity bill is ₹2,940 versus a ₹1,825 historical average.
 3. Adobe increased from ₹797 to ₹1,596.
-4. Three automatic payments totalling ₹6,199 are due within seven days.
+4. Three automatic payments totaling ₹6,199 are due within seven days.
 5. The protected balance has approximately nine days of runway.
 
 In **What If?**, a hypothetical ₹5,000 purchase reduces runway to approximately five days and raises the risk band. The simulation never mutates the real dataset.
@@ -40,7 +40,7 @@ In **What If?**, a hypothetical ₹5,000 purchase reduces runway to approximatel
 
 - React Native + Expo SDK 54
 - TypeScript with strict mode
-- AsyncStorage for local persistence
+- Async Storage for local persistence
 - Expo Document Picker + File System for CSV import
 - Expo Notifications for local device warnings
 - React Native Web for laptop/browser development
