@@ -21,7 +21,7 @@ import { PersistedFinanceState } from '../types/finance';
  * gemini.ts. Empty means backup is unavailable and the app says so rather than
  * failing.
  */
-export const BACKUP_BASE_URL = '';
+export const BACKUP_BASE_URL = 'https://precise-tern-860.eu-west-1.convex.site';
 
 const TIMEOUT_MS = 12000;
 

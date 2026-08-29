@@ -32,7 +32,7 @@ import { SpendingForecast, SpendingPrediction, FinancialSummary } from '../types
  * running `npx convex dev` — it looks like
  * https://tidy-hedgehog-123.convex.site/ask
  */
-export const ASK_ENDPOINT = '';
+export const ASK_ENDPOINT = 'https://precise-tern-860.eu-west-1.convex.site/ask';
 
 /** A slow answer is a broken answer on a chat screen. */
 const TIMEOUT_MS = 6000;
