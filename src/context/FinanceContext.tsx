@@ -1,6 +1,7 @@
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 import { demoDataset } from '../data/demoData';
 import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEngine';
+import { buildForecast } from '../engine/forecastEngine';
 import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
 import {
   FinanceDataset,
@@ -8,12 +9,15 @@ import {
   PersistedFinanceState,
   SimulationInput,
   SimulationResult,
+  SpendingForecast,
   Transaction,
   UserProfile,
 } from '../types/finance';
 
 interface FinanceContextValue extends FinanceDataset {
   summary: FinancialSummary;
+  /** Forward-looking projection: month-end spend, savings and how to fix them. */
+  forecast: SpendingForecast;
   loaded: boolean;
   onboardingComplete: boolean;
   notificationsEnabled: boolean;
@@ -56,10 +60,12 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     recurringPayments: state.recurringPayments,
   }), [state.profile, state.transactions, state.recurringPayments]);
   const summary = useMemo(() => calculateFinancialSummary(dataset), [dataset]);
+  const forecast = useMemo(() => buildForecast(dataset), [dataset]);
 
   const value = useMemo<FinanceContextValue>(() => ({
     ...dataset,
     summary,
+    forecast,
     loaded,
     onboardingComplete: state.onboardingComplete,
     notificationsEnabled: state.notificationsEnabled,
@@ -96,7 +102,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       await clearFinanceState();
       setState(initialState);
     },
-  }), [dataset, loaded, state.notificationsEnabled, state.onboardingComplete, summary]);
+  }), [dataset, forecast, loaded, state.notificationsEnabled, state.onboardingComplete, summary]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

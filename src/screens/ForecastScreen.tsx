@@ -1,0 +1,267 @@
+/**
+ * ForecastScreen — "where does this month end, and what would change it?"
+ *
+ * Home answers what is wrong now. This answers what happens next, which is
+ * the whole preventive premise of CashCue.
+ */
+
+import { Feather } from '@expo/vector-icons';
+import React from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+
+import { MetricCard } from '../components/MetricCard';
+import { Screen, SectionTitle } from '../components/Screen';
+import { useFinance } from '../context/FinanceContext';
+import { colors, radii, spacing } from '../theme/colors';
+import { CategoryForecast, SavingsAction } from '../types/finance';
+import { formatCurrency, titleCase } from '../utils/format';
+
+/**
+ * One category, drawn as two stacked bars: where it is heading, and what
+ * normal looks like. Two bars side by side make "double your usual" land
+ * instantly in a way a percentage never does.
+ */
+function CategoryRow({ item, widest }: { item: CategoryForecast; widest: number }) {
+  const over = item.trendPercentage > 15;
+  const projectedWidth = widest > 0 ? Math.max(4, (item.projectedMonthEnd / widest) * 100) : 4;
+  const baselineWidth = widest > 0 ? Math.max(4, (item.baselineMonth / widest) * 100) : 4;
+
+  return (
+    <View style={styles.categoryRow}>
+      <View style={styles.categoryHead}>
+        <Text style={styles.categoryName}>{titleCase(item.category)}</Text>
+        <Text style={[styles.categoryValue, over && styles.categoryValueOver]}>
+          {formatCurrency(item.projectedMonthEnd)}
+        </Text>
+      </View>
+
+      <View style={styles.barTrack}>
+        <View style={[styles.barFill, { width: `${projectedWidth}%` }, over && styles.barFillOver]} />
+      </View>
+      <View style={styles.barTrack}>
+        <View style={[styles.barBaseline, { width: `${baselineWidth}%` }]} />
+      </View>
+
+      <View style={styles.categoryFoot}>
+        <Text style={styles.categoryHelper}>usually {formatCurrency(item.baselineMonth)}</Text>
+        {over ? (
+          <Text style={styles.trendUp}>+{Math.round(item.trendPercentage)}%</Text>
+        ) : (
+          <Text style={styles.trendFlat}>on track</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function ActionCard({ action, index }: { action: SavingsAction; index: number }) {
+  return (
+    <View style={styles.actionCard}>
+      <View style={styles.actionHead}>
+        <View style={styles.actionRank}>
+          <Text style={styles.actionRankText}>{index + 1}</Text>
+        </View>
+        <Text style={styles.actionTitle}>{action.title}</Text>
+      </View>
+      <Text style={styles.actionDetail}>{action.detail}</Text>
+      {action.dailyReduction > 0 ? (
+        <View style={styles.actionChip}>
+          <Feather name="trending-down" size={12} color={colors.primary} />
+          <Text style={styles.actionChipText}>{formatCurrency(action.dailyReduction)} a day</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export function ForecastScreen() {
+  const { forecast } = useFinance();
+  const widest = Math.max(
+    ...forecast.categories.map((c) => Math.max(c.projectedMonthEnd, c.baselineMonth)),
+    1,
+  );
+
+  const savingsShort = !forecast.onTrack;
+
+  return (
+    <Screen
+      title="Forecast"
+      subtitle={`Day ${forecast.daysElapsed} of the month — ${forecast.daysRemaining} days still to pay for.`}
+    >
+      {/* ---- The headline: where this month ends ---- */}
+      <View style={[styles.hero, savingsShort && styles.heroAlert]}>
+        <Text style={styles.heroLabel}>
+          {forecast.projectedSavings >= 0 ? 'Projected savings this month' : 'Projected shortfall this month'}
+        </Text>
+        <Text style={[styles.heroValue, savingsShort && styles.heroValueAlert]}>
+          {formatCurrency(Math.abs(forecast.projectedSavings))}
+        </Text>
+        <Text style={styles.heroHelper}>
+          {savingsShort
+            ? `${formatCurrency(forecast.savingsGap)} short of your ${formatCurrency(forecast.savingsTarget)} target, if nothing changes.`
+            : `Ahead of your ${formatCurrency(forecast.savingsTarget)} target. Keep going.`}
+        </Text>
+
+        <View style={styles.heroSplit}>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatLabel}>Income</Text>
+            <Text style={styles.heroStatValue}>{formatCurrency(forecast.expectedIncome)}</Text>
+          </View>
+          <View style={styles.heroDivider} />
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatLabel}>Projected spend</Text>
+            <Text style={styles.heroStatValue}>{formatCurrency(forecast.projectedMonthEndSpending)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* ---- The numbers behind it ---- */}
+      <View style={styles.metrics}>
+        <MetricCard
+          icon="calendar"
+          label="Next 7 days"
+          value={formatCurrency(forecast.projectedNextWeekSpending)}
+          helper={`Last week you spent ${formatCurrency(forecast.lastWeekSpending)}`}
+          accent={forecast.projectedNextWeekSpending > forecast.baselineWeeklySpending ? colors.critical : colors.safe}
+        />
+        <MetricCard
+          icon="target"
+          label="Safe to spend"
+          value={`${formatCurrency(forecast.safeDailyAllowance)}/day`}
+          helper={`You are spending ${formatCurrency(forecast.currentDailyPace)} a day`}
+          accent={forecast.currentDailyPace > forecast.safeDailyAllowance ? colors.critical : colors.safe}
+        />
+        <MetricCard
+          icon="activity"
+          label="Month projection"
+          value={formatCurrency(forecast.projectedMonthEndSpending, true)}
+          helper={`A normal month is ${formatCurrency(forecast.baselineMonthlySpending, true)}`}
+          accent={forecast.projectedMonthEndSpending > forecast.baselineMonthlySpending ? colors.critical : colors.safe}
+        />
+        <MetricCard
+          icon="clock"
+          label="Spent so far"
+          value={formatCurrency(forecast.currentMonthSpending, true)}
+          helper={`Over the first ${forecast.daysElapsed} days`}
+          accent={colors.white}
+        />
+      </View>
+
+      {/* ---- Category by category ---- */}
+      <SectionTitle title="Where the month is heading" />
+      <View style={styles.panel}>
+        <View style={styles.legend}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, { backgroundColor: colors.primary }]} />
+            <Text style={styles.legendText}>projected</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, styles.legendSwatchBaseline]} />
+            <Text style={styles.legendText}>your normal</Text>
+          </View>
+        </View>
+        {forecast.categories.map((item) => (
+          <CategoryRow key={item.category} item={item} widest={widest} />
+        ))}
+      </View>
+
+      {/* ---- What to actually do ---- */}
+      <SectionTitle title={savingsShort ? 'How to close the gap' : 'How to save even more'} />
+      {forecast.actions.length > 0 ? (
+        forecast.actions.map((action, index) => (
+          <ActionCard key={action.id} action={action} index={index} />
+        ))
+      ) : (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>
+            Nothing to cut — your spending is already inside its normal range for every category.
+          </Text>
+        </View>
+      )}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  hero: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.xl,
+    padding: spacing.xl,
+  },
+  heroAlert: { borderColor: colors.primary, backgroundColor: colors.criticalSoft },
+  heroLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
+  heroValue: { color: colors.text, fontSize: 44, fontWeight: '900', letterSpacing: -1.5, marginTop: spacing.sm },
+  heroValueAlert: { color: colors.primary },
+  heroHelper: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: spacing.sm },
+  heroSplit: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.xl, gap: spacing.lg },
+  heroStat: { flex: 1 },
+  heroDivider: { width: 1, height: 30, backgroundColor: colors.border },
+  heroStatLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  heroStatValue: { color: colors.text, fontSize: 17, fontWeight: '900', marginTop: 3 },
+
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.lg },
+
+  panel: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+  },
+  legend: { flexDirection: 'row', gap: spacing.lg, marginBottom: spacing.lg },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendSwatch: { width: 10, height: 10, borderRadius: 2 },
+  legendSwatchBaseline: { backgroundColor: colors.textMuted },
+  legendText: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+
+  categoryRow: { marginBottom: spacing.lg },
+  categoryHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  categoryName: { color: colors.text, fontSize: 14, fontWeight: '800' },
+  categoryValue: { color: colors.text, fontSize: 14, fontWeight: '900' },
+  categoryValueOver: { color: colors.primary },
+  barTrack: { height: 7, borderRadius: 4, backgroundColor: colors.backgroundRaised, marginTop: 6, overflow: 'hidden' },
+  barFill: { height: 7, borderRadius: 4, backgroundColor: colors.white },
+  barFillOver: { backgroundColor: colors.primary },
+  barBaseline: { height: 7, borderRadius: 4, backgroundColor: colors.textMuted, opacity: 0.55 },
+  categoryFoot: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  categoryHelper: { color: colors.textMuted, fontSize: 11 },
+  trendUp: { color: colors.primary, fontSize: 11, fontWeight: '900' },
+  trendFlat: { color: colors.textMuted, fontSize: 11, fontWeight: '800' },
+
+  actionCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  actionHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  actionRank: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  actionRankText: { color: colors.primary, fontSize: 11, fontWeight: '900' },
+  actionTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '900' },
+  actionDetail: { color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: spacing.md },
+  actionChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    paddingVertical: 5, paddingHorizontal: 10,
+    marginTop: spacing.md,
+  },
+  actionChipText: { color: colors.primary, fontSize: 11, fontWeight: '900' },
+
+  emptyCard: {
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radii.lg, padding: spacing.xl,
+  },
+  emptyText: { color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
+});

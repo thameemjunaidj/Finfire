@@ -32,7 +32,7 @@ export async function scheduleRiskNotification(title: string, body: string): Pro
         name: 'FinFire alerts',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 150, 250],
-        lightColor: '#FF6B35',
+        lightColor: '#FF1A0D', // matches colors.primary in the black/white/red theme
       });
     }
     await Notifications.scheduleNotificationAsync({

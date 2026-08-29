@@ -3,12 +3,15 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
 
-export type AppTab = 'home' | 'alerts' | 'transactions' | 'simulator';
+export type AppTab = 'home' | 'forecast' | 'alerts' | 'transactions' | 'simulator';
 
+// Labels are shortened now that there are five tabs — at a fifth of the screen
+// "Transactions" would truncate to an ellipsis on a narrow phone.
 const tabs: Array<{ id: AppTab; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'forecast', label: 'Forecast', icon: 'trending-up' },
   { id: 'alerts', label: 'Alerts', icon: 'alert-triangle' },
-  { id: 'transactions', label: 'Transactions', icon: 'list' },
+  { id: 'transactions', label: 'Activity', icon: 'list' },
   { id: 'simulator', label: 'What If?', icon: 'sliders' },
 ];
 
@@ -35,7 +38,7 @@ export function BottomTabs({ active, onChange, alertCount }: { active: AppTab; o
 
 const styles = StyleSheet.create({
   shell: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', paddingHorizontal: spacing.md, paddingBottom: spacing.md },
-  tabs: { width: '100%', maxWidth: 640, height: 72, borderRadius: radii.xl, backgroundColor: '#111A2DEB', borderWidth: 1, borderColor: colors.border, flexDirection: 'row', paddingHorizontal: spacing.sm, shadowColor: colors.black, shadowOpacity: 0.35, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 12 },
+  tabs: { width: '100%', maxWidth: 640, height: 72, borderRadius: radii.xl, backgroundColor: colors.overlay, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', paddingHorizontal: spacing.sm, shadowColor: colors.black, shadowOpacity: 0.35, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 12 },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
   iconWrap: { width: 36, height: 30, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
   activeIcon: { backgroundColor: colors.primarySoft },

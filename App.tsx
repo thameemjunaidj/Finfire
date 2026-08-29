@@ -6,6 +6,7 @@ import { AppTab, BottomTabs } from './src/components/BottomTabs';
 import { SettingsModal } from './src/components/SettingsModal';
 import { FinanceProvider, useFinance } from './src/context/FinanceContext';
 import { AlertsScreen } from './src/screens/AlertsScreen';
+import { ForecastScreen } from './src/screens/ForecastScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { SimulatorScreen } from './src/screens/SimulatorScreen';
@@ -41,6 +42,7 @@ function FinFireApp() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <View style={styles.app}>
         {tab === 'home' ? <HomeScreen onViewAlerts={() => setTab('alerts')} onOpenSettings={() => setSettingsVisible(true)} /> : null}
+        {tab === 'forecast' ? <ForecastScreen /> : null}
         {tab === 'alerts' ? <AlertsScreen /> : null}
         {tab === 'transactions' ? <TransactionsScreen /> : null}
         {tab === 'simulator' ? <SimulatorScreen /> : null}
