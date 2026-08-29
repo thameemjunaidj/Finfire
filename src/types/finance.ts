@@ -116,6 +116,9 @@ export interface SimulationResult {
 export interface PersistedFinanceState extends FinanceDataset {
   onboardingComplete: boolean;
   notificationsEnabled: boolean;
+  /** Email or phone the person signed in with. Absent means signed out.
+   *  Stored on the phone only — there is no account server yet. */
+  signedInAs?: string;
 }
 
 /* ------------------------------------------------------------------ */

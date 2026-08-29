@@ -41,6 +41,10 @@ export interface AssistantReply {
   text: string;
   /** Follow-up questions offered as buttons, so nobody has to guess what to type. */
   suggestions: string[];
+  /** False when the question was not recognised. The screen uses this to decide
+   *  whether it is worth asking a language model — the known questions are
+   *  answered better here, with exact figures. */
+  understood: boolean;
 }
 
 /** The questions the app opens with. */
@@ -98,9 +102,17 @@ function spendByCategory(transactions: Transaction[], since: string): Array<[Tra
   return [...totals.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-export function answerQuestion(question: string, context: AssistantContext): AssistantReply {
+function buildReply(question: string, context: AssistantContext): Omit<AssistantReply, 'understood'> {
   const { summary, forecast, prediction, learned, transactions, profile } = context;
   const intent = readIntent(question);
+
+  // Nothing recorded yet. Answering anything else would be making it up.
+  if (transactions.length === 0 && intent !== 'help') {
+    return {
+      text: 'I have nothing to go on yet. Add your spending on the Spending tab — even a few days is enough for me to start answering properly.',
+      suggestions: ['What can you do?'],
+    };
+  }
   const monthStart = `${(profile.analysisDate ?? '').slice(0, 7)}-01`;
 
   switch (intent) {
@@ -236,4 +248,17 @@ export function answerQuestion(question: string, context: AssistantContext): Ass
         suggestions: STARTER_QUESTIONS,
       };
   }
+}
+
+/**
+ * The function the screen calls.
+ *
+ * Known money questions are answered here and nowhere else: the figures are
+ * exact and the answer is instant. Only when the wording is not recognised is
+ * it worth sending the question elsewhere — and even then, only the question
+ * and a block of already-computed numbers travel.
+ */
+export function answerQuestion(question: string, context: AssistantContext): AssistantReply {
+  const understood = readIntent(question) !== 'unknown';
+  return { ...buildReply(question, context), understood };
 }

@@ -87,6 +87,62 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
     ? ((projectedMonthlySpending - normalMonthlySpending) / normalMonthlySpending) * 100
     : 0;
 
+  /**
+   * With nothing recorded, say nothing.
+   *
+   * Every detector below compares against "normal", and with no history there
+   * is no normal — so they were producing a risk score of 30 and a warning for
+   * someone who had not entered a single payment. An app that raises an alarm
+   * before it has any evidence is one nobody believes later.
+   */
+  if (debitTransactions.length === 0) {
+    const balance = Math.max(0, profile.availableBalance);
+
+    /**
+     * One exception to the silence: an empty account.
+     *
+     * Everything else needs history to judge — you cannot call spending
+     * "unusual" without knowing what usual is. But "there is no money left" is
+     * something we can see directly, and it needs no comparison at all.
+     */
+    const noMoney = balance <= 0;
+
+    return {
+      riskScore: noMoney ? 30 : 0,
+      riskBand: noMoney ? 'Caution' : 'Safe',
+      riskExplanation: noMoney
+        ? 'There is nothing left in the account.'
+        : 'Add a few days of spending and I can start looking for problems.',
+      disposableBalance: balance,
+      protectedBalance: balance,
+      runwayDays: 0,
+      projectedMonthlySpending: 0,
+      normalMonthlySpending: 0,
+      upcomingPaymentsTotal: 0,
+      upcomingPaymentsCount: 0,
+      currentMonthSpending: 0,
+      monthlySpend: [],
+      alerts: noMoney ? [createAlert({
+        id: 'low-runway',
+        type: 'low_runway',
+        severity: 'critical',
+        title: 'There is no money left',
+        message: 'Your balance is zero, so anything due now will not go through.',
+        evidence: 'Balance ₹0',
+        recommendation: 'Add money before your next bill, or move the bill to a later date.',
+        impactAmount: 0,
+        componentScore: 100,
+      })] : [],
+      components: {
+        spendingSurge: 0,
+        runway: noMoney ? 100 : 0,
+        billAnomaly: 0,
+        paymentPressure: 0,
+        subscriptionIncrease: 0,
+      },
+    };
+  }
+
   const alerts: FinancialAlert[] = [];
   const spendingSurgeScore = surgePercentage >= 10
     ? clamp((Math.max(0, surgePercentage) / 50) * 100, 0, 75)

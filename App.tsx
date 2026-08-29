@@ -11,6 +11,7 @@ import { AssistantScreen } from './src/screens/AssistantScreen';
 import { ForecastScreen } from './src/screens/ForecastScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
+import { SignInScreen } from './src/screens/SignInScreen';
 import { SimulatorScreen } from './src/screens/SimulatorScreen';
 import { TransactionsScreen } from './src/screens/TransactionsScreen';
 import { initializeNotifications } from './src/services/notifications';
@@ -30,7 +31,7 @@ LogBox.ignoreLogs([
 ]);
 
 function FinFireApp() {
-  const { loaded, onboardingComplete, summary } = useFinance();
+  const { loaded, onboardingComplete, signedInAs, signIn, summary } = useFinance();
   const [tab, setTab] = useState<AppTab>('home');
   const [settingsVisible, setSettingsVisible] = useState(false);
   useEffect(() => {
@@ -39,6 +40,8 @@ function FinFireApp() {
   if (!loaded) {
     return <View style={styles.loading}><ActivityIndicator color={colors.primary} size="large" /></View>;
   }
+  // Sign in, then set up the account, then the app itself.
+  if (!signedInAs) return <SignInScreen onSignedIn={signIn} />;
   if (!onboardingComplete) return <OnboardingScreen />;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>

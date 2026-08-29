@@ -22,12 +22,19 @@ import {
 
 import { useFinance } from '../context/FinanceContext';
 import { answerQuestion, STARTER_QUESTIONS } from '../engine/assistantEngine';
+import { askLanguageModel, buildFigures, isLanguageModelAvailable } from '../services/gemini';
 import { colors, radii, spacing } from '../theme/colors';
 
 interface Message {
   id: string;
   from: 'you' | 'app';
   text: string;
+  /** Shown in the corner of the bubble, the way a messaging app does. */
+  time: string;
+}
+
+function clockTime(): string {
+  return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export function AssistantScreen() {
@@ -38,13 +45,14 @@ export function AssistantScreen() {
       id: 'welcome',
       from: 'app',
       text: `Hello ${profile.name}. Ask me anything about your money — where it goes, whether it will last, or where to cut.`,
+      time: clockTime(),
     },
   ]);
   const [suggestions, setSuggestions] = useState<string[]>(STARTER_QUESTIONS);
   const [draft, setDraft] = useState('');
   const scroller = useRef<ScrollView>(null);
 
-  const ask = useCallback((question: string) => {
+  const ask = useCallback(async (question: string) => {
     const trimmed = question.trim();
     if (!trimmed) return;
 
@@ -52,14 +60,36 @@ export function AssistantScreen() {
       profile, summary, forecast, prediction, learned, transactions,
     });
 
+    const answerId = `app-${Date.now()}`;
     setMessages((current) => [
       ...current,
-      { id: `you-${current.length}`, from: 'you', text: trimmed },
-      { id: `app-${current.length}`, from: 'app', text: reply.text },
+      { id: `you-${Date.now()}`, from: 'you', text: trimmed, time: clockTime() },
+      { id: answerId, from: 'app', text: reply.text, time: clockTime() },
     ]);
     setSuggestions(reply.suggestions);
     setDraft('');
     // Let the new bubbles lay out before scrolling to them.
+    setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), 60);
+
+    /**
+     * Known questions are already answered, exactly, from real figures — there
+     * is nothing a language model could add. Only when the wording was not
+     * recognised is it worth asking, and even then only the question and a
+     * block of already-computed numbers leave the phone.
+     */
+    if (reply.understood || !isLanguageModelAvailable()) return;
+
+    setMessages((current) => current.map((message) => (
+      message.id === answerId ? { ...message, text: 'Thinking…' } : message
+    )));
+
+    const better = await askLanguageModel(trimmed, buildFigures(summary, forecast, prediction));
+
+    // A null answer is normal — no key, no signal, quota gone. Put the
+    // on-device reply back and say nothing about it.
+    setMessages((current) => current.map((message) => (
+      message.id === answerId ? { ...message, text: better ?? reply.text } : message
+    )));
     setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), 60);
   }, [profile, summary, forecast, prediction, learned, transactions]);
 
@@ -73,7 +103,9 @@ export function AssistantScreen() {
         <Text style={styles.title}>Ask</Text>
         <View style={styles.offlineChip}>
           <Feather name="wifi-off" size={11} color={colors.primary} />
-          <Text style={styles.offlineText}>Answers made on this phone</Text>
+          <Text style={styles.offlineText}>
+            {isLanguageModelAvailable() ? 'Your numbers stay on this phone' : 'Answers made on this phone'}
+          </Text>
         </View>
       </View>
 
@@ -91,6 +123,7 @@ export function AssistantScreen() {
             <Text style={message.from === 'you' ? styles.textYou : styles.textApp}>
               {message.text}
             </Text>
+            <Text style={message.from === 'you' ? styles.timeYou : styles.timeApp}>{message.time}</Text>
           </View>
         ))}
       </ScrollView>
@@ -107,7 +140,7 @@ export function AssistantScreen() {
             <Pressable
               key={suggestion}
               accessibilityRole="button"
-              onPress={() => ask(suggestion)}
+              onPress={() => { void ask(suggestion); }}
               style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
             >
               <Text style={styles.chipText}>{suggestion}</Text>
@@ -124,13 +157,13 @@ export function AssistantScreen() {
           placeholder="Ask about your money"
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"
-          onSubmitEditing={() => ask(draft)}
+          onSubmitEditing={() => { void ask(draft); }}
           accessibilityLabel="Ask a question about your money"
         />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Send"
-          onPress={() => ask(draft)}
+          onPress={() => { void ask(draft); }}
           style={({ pressed }) => [styles.send, pressed && { opacity: 0.8 }]}
         >
           <Feather name="arrow-up" size={18} color={colors.black} />
@@ -155,16 +188,21 @@ const styles = StyleSheet.create({
   thread: { flex: 1 },
   threadContent: { padding: spacing.lg, paddingBottom: spacing.sm, gap: spacing.md },
 
-  bubble: { maxWidth: '88%', borderRadius: radii.lg, padding: spacing.md },
-  fromYou: { alignSelf: 'flex-end', backgroundColor: colors.primary },
+  // One squared-off corner on the sender's side, the way messaging apps do it —
+  // it tells you who spoke before you read a word.
+  bubble: { maxWidth: '88%', borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: 9 },
+  fromYou: { alignSelf: 'flex-end', backgroundColor: colors.primary, borderBottomRightRadius: 4 },
   fromApp: {
     alignSelf: 'flex-start',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    borderBottomLeftRadius: 4,
   },
   textYou: { color: colors.black, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   textApp: { color: colors.text, fontSize: 14, lineHeight: 21 },
+  timeYou: { color: colors.black, fontSize: 9.5, fontWeight: '700', opacity: 0.65, alignSelf: 'flex-end', marginTop: 3 },
+  timeApp: { color: colors.textMuted, fontSize: 9.5, alignSelf: 'flex-end', marginTop: 3 },
 
   chipRow: { maxHeight: 48, flexGrow: 0 },
   chipRowContent: { paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: 'center' },

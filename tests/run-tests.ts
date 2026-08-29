@@ -36,9 +36,9 @@ assert(types.has('low_runway'), 'detects a low money runway');
 assert(summary.riskScore >= 0 && summary.riskScore <= 100, 'clamps risk score to 0–100');
 assert(summary.upcomingPaymentsCount === 3, 'counts three upcoming payments');
 approximately(summary.upcomingPaymentsTotal, 657, 0, 'upcoming total');
-approximately(summary.runwayDays, 9, 0, 'demo runway');
+approximately(summary.runwayDays, 7, 0, 'demo runway');
 
-// The larger phone recharge is due on the 24th, so it is not a transaction yet.
+// The electricity bill is due on the 27th, so it is not a transaction yet.
 // This asserts the app warns BEFORE the charge lands, which is the whole point.
 assert(
   summary.alerts.some((alert) => alert.id.startsWith('upcoming-bill-')),
@@ -78,7 +78,13 @@ const safeDataset: FinanceDataset = {
 const safeSummary = calculateFinancialSummary(safeDataset);
 assert(safeSummary.riskScore === 0, 'a genuinely safe empty dataset has zero risk');
 assert(safeSummary.alerts.length === 0, 'a safe dataset has no false warnings');
-assert(safeSummary.riskExplanation === 'Nothing needs your attention right now.', 'safe explanation is clear and reassuring');
+// An empty account is not "safe" — it is unknown, and the app now says so.
+// "Nothing needs your attention" implies we looked and found nothing, when in
+// fact we had nothing to look at. Same zero risk, honest wording.
+assert(
+  safeSummary.riskExplanation.includes('Add a few days of spending'),
+  'an empty account says it has nothing to go on, rather than reassuring',
+);
 assert(plainLabel('debit') === 'Money out', 'shows debit in plain language');
 assert(plainLabel('critical') === 'Urgent', 'shows critical severity in plain language');
 

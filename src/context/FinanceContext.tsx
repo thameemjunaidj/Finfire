@@ -26,6 +26,7 @@ import {
   SimulationResult,
   SpendingPrediction,
   Transaction,
+  TransactionCategory,
   TransactionImportSummary,
   RecurringPayment,
   SpendingForecast,
@@ -42,24 +43,49 @@ interface FinanceContextValue extends FinanceDataset {
   /** That prediction written out in plain language. */
   narrative: PredictionNarrative;
   loaded: boolean;
+  signedInAs?: string;
   onboardingComplete: boolean;
   notificationsEnabled: boolean;
   useDemoAccount: () => void;
   completeCustomSetup: (profile: UserProfile) => void;
   addTransaction: (transaction: Omit<Transaction, 'id' | 'source'>) => void;
   deleteTransaction: (id: string) => void;
+  /** Correct what a payment was for. The categoriser learns from this. */
+  setTransactionCategory: (id: string, category: TransactionCategory) => void;
   importTransactions: (transactions: Transaction[]) => TransactionImportSummary;
   updateProfile: (profile: UserProfile) => void;
   addRecurringPayment: (payment: Omit<RecurringPayment, 'id'>) => void;
   deleteRecurringPayment: (id: string) => void;
   runSimulation: (input: SimulationInput) => SimulationResult;
+  /** The exact state that is saved on this phone — what a backup copies. */
+  snapshot: () => PersistedFinanceState;
+  /** Replace everything with a restored backup. */
+  restoreState: (state: PersistedFinanceState) => void;
+  signIn: (identifier: string) => void;
+  signOut: () => void;
   setNotificationsEnabled: (value: boolean) => void;
   resetDemo: () => void;
   eraseLocalData: () => Promise<void>;
 }
 
+/**
+ * A brand-new, empty account.
+ *
+ * The app used to start pre-loaded with the sample account, which meant a
+ * first-time user saw somebody else's spending presented as their own. It now
+ * starts with nothing, and the sample is something you choose during setup.
+ */
 const initialState: PersistedFinanceState = {
-  ...demoDataset,
+  profile: {
+    id: 'me',
+    name: '',
+    monthlyIncome: 0,
+    availableBalance: 0,
+    nextIncomeDate: '',
+    essentialMonthlyExpenses: 0,
+  },
+  transactions: [],
+  recurringPayments: [],
   onboardingComplete: false,
   notificationsEnabled: true,
 };
@@ -124,18 +150,29 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     learned,
     narrative,
     loaded,
+    signedInAs: state.signedInAs,
     onboardingComplete: state.onboardingComplete,
     notificationsEnabled: state.notificationsEnabled,
-    useDemoAccount: () => setState({ ...demoDataset, onboardingComplete: true, notificationsEnabled: true }),
-    completeCustomSetup: (profile) => setState({
+    useDemoAccount: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: true, signedInAs: current.signedInAs })),
+    completeCustomSetup: (profile) => setState((current) => ({
       profile,
       transactions: [],
       recurringPayments: [],
       onboardingComplete: true,
       notificationsEnabled: true,
-    }),
+      // Resetting the account must not sign anyone out.
+      signedInAs: current.signedInAs,
+    })),
     addTransaction: (transaction) => setState((current) => addTransactionToState(current, createManualTransaction(transaction))),
     deleteTransaction: (id) => setState((current) => removeTransactionFromState(current, id)),
+    setTransactionCategory: (id, category) => setState((current) => ({
+      ...current,
+      transactions: current.transactions.map((item) => (
+        item.id === id
+          ? { ...item, category, essential: ['rent', 'utilities', 'health'].includes(category) }
+          : item
+      )),
+    })),
     importTransactions: (transactions) => {
       const importSummary = appendImportedTransactions(state, transactions).summary;
       setState((current) => appendImportedTransactions(current, transactions).state);
@@ -145,8 +182,14 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     addRecurringPayment: (payment) => setState((current) => addRecurringPaymentToState(current, createRecurringPayment(payment))),
     deleteRecurringPayment: (id) => setState((current) => removeRecurringPaymentFromState(current, id)),
     runSimulation: (input) => simulatePurchase(analysisDataset, input),
+    snapshot: () => state,
+    // Keep whoever is signed in — a restore should not log them out of the
+    // account they just restored from.
+    restoreState: (restored) => setState({ ...restored, signedInAs: state.signedInAs }),
+    signIn: (identifier) => setState((current) => ({ ...current, signedInAs: identifier })),
+    signOut: () => setState((current) => ({ ...current, signedInAs: undefined })),
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
-    resetDemo: () => setState({ ...demoDataset, onboardingComplete: true, notificationsEnabled: state.notificationsEnabled }),
+    resetDemo: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: current.notificationsEnabled, signedInAs: current.signedInAs })),
     eraseLocalData: async () => {
       await clearFinanceState();
       setState(initialState);

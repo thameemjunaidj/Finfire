@@ -9,6 +9,7 @@ import { confirmAction, showMessage } from '../utils/alerts';
 import { toIsoDate } from '../utils/dates';
 import { formatDate } from '../utils/format';
 import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
+import { BackupCard } from './BackupCard';
 import { FinButton } from './FinButton';
 import { FormField } from './FormField';
 
@@ -153,6 +154,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
 
                 <FinButton label="Test notification" icon="bell" variant="secondary" disabled={!notificationsEnabled} onPress={() => void testNotification()} />
                 <FinButton label="Restore sample account" icon="refresh-cw" variant="ghost" onPress={restoreDemo} style={styles.action} />
+                <View style={styles.action}><BackupCard /></View>
                 <FinButton label="Erase my data" icon="trash-2" variant="danger" onPress={erase} style={styles.action} />
                 <Text style={styles.version}>{APP_NAME} 1.1 · Sample, manually added and imported information only</Text>
               </>

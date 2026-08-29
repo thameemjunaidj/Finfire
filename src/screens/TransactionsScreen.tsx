@@ -5,6 +5,7 @@ import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ChoiceChips } from '../components/ChoiceChips';
 import { FinButton } from '../components/FinButton';
+import { DatePickerField } from '../components/DatePickerField';
 import { FormField } from '../components/FormField';
 import { RecurringPaymentsModal } from '../components/RecurringPaymentsModal';
 import { Screen } from '../components/Screen';
@@ -20,11 +21,13 @@ import { isValidIsoDate, parsePositiveMoney } from '../utils/validation';
 type CategoryFilter = 'all' | TransactionCategory;
 
 export function TransactionsScreen() {
-  const { transactions, profile, addTransaction, deleteTransaction, importTransactions } = useFinance();
+  const { transactions, profile, addTransaction, deleteTransaction, importTransactions, setTransactionCategory } = useFinance();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<CategoryFilter>('all');
   const [addVisible, setAddVisible] = useState(false);
   const [scheduledVisible, setScheduledVisible] = useState(false);
+  /** The payment whose category is being corrected. */
+  const [editing, setEditing] = useState<Transaction | null>(null);
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(profile.analysisDate ?? toIsoDate(new Date()));
@@ -146,7 +149,11 @@ export function TransactionsScreen() {
             <TransactionRow
               key={item.id}
               transaction={item}
-              onPress={item.source === 'manual' || item.source === 'csv' ? () => remove(item) : undefined}
+              // Tapping used to delete. A tap is the easiest gesture to make by
+              // accident, and deletion is the one thing you cannot undo — so a
+              // tap now opens the entry, and removing it is a deliberate choice
+              // inside.
+              onPress={() => setEditing(item)}
             />
           ))}
           {!filtered.length ? <Text style={styles.empty}>No matching spending entries.</Text> : null}
@@ -174,7 +181,7 @@ export function TransactionsScreen() {
                 <FormField label="Name" value={merchant} onChangeText={setMerchant} placeholder={direction === 'credit' ? 'e.g. Freelance payment' : 'e.g. Swiggy'} />
               </View>
               <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="500" />
-              <FormField label="Date (YYYY-MM-DD)" value={date} onChangeText={setDate} />
+              <DatePickerField label="When was this?" value={date} onChange={setDate} latest={profile.analysisDate ?? toIsoDate(new Date())} />
               <Text style={styles.fieldLabel}>What is it for?</Text>
               <ChoiceChips
                 values={direction === 'credit' ? ['income', 'other'] : TRANSACTION_CATEGORIES.filter((value) => value !== 'income')}
@@ -192,6 +199,58 @@ export function TransactionsScreen() {
                 <Text style={styles.balanceNoteText}>Saving changes your balance. If you remove this later, the balance changes back.</Text>
               </View>
               <FinButton label="Save" icon="check" onPress={save} style={styles.saveButton} />
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ---- Correcting a payment ---- */}
+      <Modal visible={editing !== null} transparent animationType="slide" onRequestClose={() => setEditing(null)}>
+        <Pressable style={styles.backdrop} onPress={() => setEditing(null)}>
+          <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{editing?.merchant}</Text>
+              <Pressable accessibilityLabel="Close" onPress={() => setEditing(null)}>
+                <Feather name="x" size={22} color={colors.text} />
+              </Pressable>
+            </View>
+
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
+              <Text style={styles.correctionNote}>
+                {editing ? `${editing.direction === 'debit' ? 'Paid' : 'Received'} ₹${Math.round(editing.amount)} on ${editing.date}.` : ''}
+              </Text>
+
+              <Text style={styles.fieldLabel}>What was this for?</Text>
+              <ChoiceChips
+                values={editing?.direction === 'credit'
+                  ? ['income', 'other']
+                  : TRANSACTION_CATEGORIES.filter((value) => value !== 'income')}
+                selected={editing?.category ?? 'other'}
+                onSelect={(value) => {
+                  if (!editing) return;
+                  setTransactionCategory(editing.id, value as TransactionCategory);
+                  setEditing({ ...editing, category: value as TransactionCategory });
+                }}
+              />
+
+              {/* This is the point of the screen: every correction teaches the
+                  categoriser, so the next statement needs fewer of them. */}
+              <View style={styles.balanceNote}>
+                <Feather name="check-circle" size={15} color={colors.primary} />
+                <Text style={styles.balanceNoteText}>
+                  Saved as you tap. The app remembers this and will categorise {editing?.merchant} the same way next time.
+                </Text>
+              </View>
+
+              {editing && (editing.source === 'manual' || editing.source === 'csv') ? (
+                <FinButton
+                  label="Remove this entry"
+                  icon="trash-2"
+                  variant="danger"
+                  onPress={() => { const target = editing; setEditing(null); remove(target); }}
+                  style={styles.saveButton}
+                />
+              ) : null}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -222,6 +281,7 @@ const styles = StyleSheet.create({
   spacedLabel: { marginTop: spacing.lg },
   firstField: { marginTop: spacing.lg },
   balanceNote: { flexDirection: 'row', gap: spacing.sm, backgroundColor: colors.primarySoft, borderColor: `${colors.primary}55`, borderWidth: 1, borderRadius: radii.md, padding: spacing.md, marginTop: spacing.lg },
+  correctionNote: { color: colors.textSecondary, fontSize: 13, marginBottom: 4 },
   balanceNoteText: { color: colors.textSecondary, fontSize: 10.5, lineHeight: 16, flex: 1 },
   saveButton: { marginTop: spacing.xl },
 });
