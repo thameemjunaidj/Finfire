@@ -32,16 +32,6 @@ Fin Extinguisher is an offline-first financial early-warning app built for DevJa
 - Responsive browser preview plus Android/iOS support through Expo Go
 - GitHub Actions verification on pull requests and `main`
 
-## Demo story
-
-The included account belongs to Arjun, a 22-year-old first-job professional. It is intentionally frozen at **18 August 2026** so every teammate and judge sees the same evidence. Fin Extinguisher finds five planted risks:
-
-1. Spending is accelerating beyond Arjun's normal monthly level.
-2. The electricity bill is ₹2,940 versus a ₹1,825 historical average.
-3. Adobe increased from ₹797 to ₹1,596.
-4. Three automatic payments totalling ₹6,199 are due within seven days.
-5. The protected balance has approximately nine days of runway.
-
 In **What If?**, a hypothetical ₹5,000 purchase reduces runway to approximately five days and raises the risk band. The simulation never mutates the real dataset.
 
 ## Technology
