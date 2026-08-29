@@ -50,3 +50,4 @@ const styles = StyleSheet.create({
   evidenceRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.sm },
   evidence: { color: colors.textMuted, fontSize: 11, fontWeight: '700', flex: 1 },
 });
+//Typescript(specifically TSX — TypeScript with JSX)
