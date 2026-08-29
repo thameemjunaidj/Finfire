@@ -119,6 +119,48 @@ export interface PersistedFinanceState extends FinanceDataset {
 }
 
 /* ------------------------------------------------------------------ */
+/* Prediction — a range and a likelihood, not a single number          */
+/* ------------------------------------------------------------------ */
+
+/** A predicted quantity expressed as a range: p50 is the typical outcome,
+ *  p10 and p90 are the optimistic and pessimistic ends. */
+export interface PredictionBand {
+  p10: number;
+  p50: number;
+  p90: number;
+}
+
+export interface SpendingPrediction {
+  asOf: string;
+  /** How many days ahead the simulation ran. */
+  horizonDays: number;
+  /** How many times it ran. */
+  simulations: number;
+  /** How many real days of history it learned from. */
+  daysObserved: number;
+  /** How much to trust the numbers, given how much history there was. */
+  confidence: 'low' | 'medium' | 'high';
+  /** Total spending still to come before the month ends. */
+  remainingSpend: PredictionBand;
+  /** Where the balance lands at month end. */
+  monthEndBalance: PredictionBand;
+  /** Share of simulated futures where the money ran out before income arrived. */
+  shortfallProbability: number;
+  /** The day it typically went wrong, across the runs where it did. */
+  likelyShortfallDate: string | null;
+  /** Plain description of how the numbers were produced, shown in the app. */
+  method: string;
+}
+
+/** A prediction turned into sentences a person can act on. */
+export interface PredictionNarrative {
+  headline: string;
+  body: string;
+  /** Whether the wording came from the device or from a language model. */
+  source: 'on-device' | 'language-model';
+}
+
+/* ------------------------------------------------------------------ */
 /* Forecasting — looking forward instead of back                       */
 /* ------------------------------------------------------------------ */
 

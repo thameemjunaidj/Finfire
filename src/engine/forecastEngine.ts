@@ -8,7 +8,7 @@
  *
  *   1. Learn each category's normal rate from the last 28 days and from
  *      previous whole months.
- *   2. Blend the recent 7-day pace with that 28-day rate — 60/40, so a bad
+ *   2. Blend the recent 7-day pace with that 28-day rate — 40/60, so a bad
  *      week moves the forecast without a single big Saturday defining it.
  *   3. Run that rate forward to the end of the month.
  *   4. Compare the projected month against income to get projected savings.
@@ -43,8 +43,15 @@ const SPEND_CATEGORIES: TransactionCategory[] = [
 /** Share of income we treat as a healthy monthly saving. */
 const SAVINGS_TARGET_RATE = 0.2;
 
-/** How much the recent week counts versus the longer 28-day average. */
-const RECENT_WEIGHT = 0.6;
+/**
+ * How much the recent week counts versus the longer 28-day average.
+ *
+ * Was 0.6, which let a single heavy week dominate the whole month — one
+ * birthday and one sale purchase projected a student into spending twice his
+ * income, a number he could not physically reach with no credit card. At 0.4
+ * a bad week still moves the forecast without becoming the forecast.
+ */
+const RECENT_WEIGHT = 0.4;
 
 /** Suggestions smaller than this are noise, not advice. */
 const MIN_USEFUL_SAVING = 150;
@@ -72,12 +79,24 @@ function previousMonthlyAverage(
   category: TransactionCategory,
   currentKey: string,
 ): number | null {
+  const relevant = transactions
+    .filter((t) => t.direction === 'debit' && t.source !== 'simulation');
+
+  // Where the data begins. A month the history starts halfway through holds
+  // only part of that month's spending, so treating it as a normal month
+  // understates it badly — with one month of history that alone would make
+  // every user look like they had suddenly started overspending.
+  const earliest = relevant.length
+    ? relevant.reduce((oldest, t) => (t.date < oldest ? t.date : oldest), relevant[0].date)
+    : currentKey;
+
   const totals = new Map<string, number>();
-  transactions
-    .filter((t) => t.direction === 'debit' && t.category === category && t.source !== 'simulation')
+  relevant
+    .filter((t) => t.category === category)
     .forEach((t) => {
       const key = monthKey(t.date);
-      if (key >= currentKey) return; // only whole months that have finished
+      if (key >= currentKey) return;        // only months that have finished
+      if (earliest > `${key}-01`) return;   // and only those held in full
       totals.set(key, (totals.get(key) ?? 0) + t.amount);
     });
 
@@ -185,7 +204,27 @@ export function buildForecast(dataset: FinanceDataset): SpendingForecast {
     .filter((c) => !c.discretionary)
     .reduce((total, c) => total + Math.max(0, c.projectedMonthEnd - c.monthToDate), 0);
   const discretionaryAllowance = allowedMonthSpend - currentMonthSpending - committedRemaining;
-  const safeDailyAllowance = Math.max(0, discretionaryAllowance / remainingForMath);
+  const targetDailyAllowance = Math.max(0, discretionaryAllowance / remainingForMath);
+
+  /**
+   * When the savings target is already out of reach, the target-based figure
+   * collapses to zero and the app ends up advising "spend ₹0 a day", which is
+   * not advice — it is an insult to someone who is already short.
+   *
+   * So we fall back to the survival number: what can be spent per day and
+   * still reach the next income with the committed payments covered. Saving
+   * nothing this month is a real outcome, and saying so plainly beats
+   * pretending the target is still available.
+   */
+  const committedBeforeIncome = categories
+    .filter((c) => !c.discretionary)
+    .reduce((total, c) => total + Math.max(0, c.projectedMonthEnd - c.monthToDate), 0);
+  const survivalDailyAllowance = Math.max(
+    0,
+    (profile.availableBalance - committedBeforeIncome) / remainingForMath,
+  );
+
+  const safeDailyAllowance = Math.max(targetDailyAllowance, survivalDailyAllowance);
 
   return {
     asOf,

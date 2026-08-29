@@ -25,11 +25,13 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
         action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
       >
         <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
+        {/* Two metrics, not four. Projected spend and upcoming payments both
+            now live on the Forecast tab, where they have room to be explained;
+            repeating them here was a large part of what made this screen read
+            as a wall of numbers. */}
         <View style={styles.metrics}>
           <MetricCard label="Available balance" value={formatCurrency(summary.disposableBalance)} helper={`${formatCurrency(summary.protectedBalance)} after essential dues`} icon="credit-card" accent={colors.safe} />
           <MetricCard label="Money runway" value={`${summary.runwayDays} days`} helper="At your recent flexible-spend pace" icon="battery-charging" accent={riskColor(summary.riskBand)} />
-          <MetricCard label="Projected spend" value={formatCurrency(summary.projectedMonthlySpending, true)} helper={`${formatCurrency(summary.normalMonthlySpending, true)} recent average`} icon="trending-up" accent={colors.primary} />
-          <MetricCard label="Due in 7 days" value={formatCurrency(summary.upcomingPaymentsTotal)} helper={`${summary.upcomingPaymentsCount} automatic payments`} icon="calendar" accent={colors.watch} />
         </View>
         <SectionTitle title="Spending trend" />
         <View style={styles.chartCard}>
@@ -47,8 +49,15 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             })}
           </View>
         </View>
-        <SectionTitle title="Urgent warnings" action={<Pressable onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
-        {summary.alerts.slice(0, 3).map((alert) => <AlertCard key={alert.id} alert={alert} onPress={() => setSelectedAlert(alert)} />)}
+        <SectionTitle title="Needs attention" action={<Pressable onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
+        {/* Two, not three — Home is a glance, the Alerts tab is the full list. */}
+        {summary.alerts.slice(0, 2).map((alert) => <AlertCard key={alert.id} alert={alert} onPress={() => setSelectedAlert(alert)} />)}
+        {summary.alerts.length > 2 ? (
+          <Pressable onPress={onViewAlerts} style={styles.moreRow}>
+            <Text style={styles.moreText}>{summary.alerts.length - 2} more</Text>
+            <Feather name="arrow-right" size={14} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
         {!summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>No urgent warnings</Text><Text style={styles.emptyText}>{APP_NAME} will explain any material change it detects.</Text></View> : null}
       </Screen>
       <AlertDetailsModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
@@ -70,6 +79,8 @@ const styles = StyleSheet.create({
   bar: { width: '100%', borderRadius: radii.sm },
   monthLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', marginTop: 5 },
   link: { color: colors.primary, fontSize: 12, fontWeight: '900' },
+  moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.md },
+  moreText: { color: colors.textMuted, fontSize: 12, fontWeight: '800' },
   empty: { alignItems: 'center', backgroundColor: colors.safeSoft, borderRadius: radii.lg, padding: spacing.xl, borderWidth: 1, borderColor: `${colors.safe}50` },
   emptyTitle: { color: colors.text, fontSize: 16, fontWeight: '900', marginTop: spacing.sm },
   emptyText: { color: colors.textSecondary, fontSize: 12, marginTop: 4, textAlign: 'center' },

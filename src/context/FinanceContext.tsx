@@ -2,14 +2,19 @@ import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo
 import { demoDataset } from '../data/demoData';
 import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEngine';
 import { buildForecast } from '../engine/forecastEngine';
+import { mergeRecurringPayments } from '../engine/recurringDetection';
+import { predictOutcome } from '../engine/predictionEngine';
+import { explainOnDevice } from '../services/ai';
 import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
 import {
   FinanceDataset,
   FinancialSummary,
   PersistedFinanceState,
+  PredictionNarrative,
   SimulationInput,
   SimulationResult,
   SpendingForecast,
+  SpendingPrediction,
   Transaction,
   UserProfile,
 } from '../types/finance';
@@ -18,6 +23,10 @@ interface FinanceContextValue extends FinanceDataset {
   summary: FinancialSummary;
   /** Forward-looking projection: month-end spend, savings and how to fix them. */
   forecast: SpendingForecast;
+  /** Simulated outcome: how likely the money runs out, and the likely range. */
+  prediction: SpendingPrediction;
+  /** That prediction written out in plain language. */
+  narrative: PredictionNarrative;
   loaded: boolean;
   onboardingComplete: boolean;
   notificationsEnabled: boolean;
@@ -59,13 +68,40 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     transactions: state.transactions,
     recurringPayments: state.recurringPayments,
   }), [state.profile, state.transactions, state.recurringPayments]);
-  const summary = useMemo(() => calculateFinancialSummary(dataset), [dataset]);
-  const forecast = useMemo(() => buildForecast(dataset), [dataset]);
+  /**
+   * What the engines actually analyse: the stored data plus any recurring
+   * payments we can infer from the transactions.
+   *
+   * Kept separate from `dataset` on purpose — `state` is what gets persisted,
+   * and we do not want detected guesses written to storage as if the user had
+   * declared them. This matters most for imported statements, which arrive
+   * with no recurring payments at all.
+   */
+  const analysisDataset = useMemo<FinanceDataset>(() => ({
+    ...dataset,
+    recurringPayments: mergeRecurringPayments(
+      dataset.recurringPayments,
+      dataset.transactions,
+      dataset.profile.analysisDate,
+    ),
+  }), [dataset]);
+
+  const summary = useMemo(() => calculateFinancialSummary(analysisDataset), [analysisDataset]);
+  const forecast = useMemo(() => buildForecast(analysisDataset), [analysisDataset]);
+
+  /** The simulation, and the plain-English version of what it found. */
+  const prediction = useMemo(() => predictOutcome(analysisDataset), [analysisDataset]);
+  const narrative = useMemo(
+    () => explainOnDevice(prediction, forecast, analysisDataset.profile),
+    [prediction, forecast, analysisDataset.profile],
+  );
 
   const value = useMemo<FinanceContextValue>(() => ({
-    ...dataset,
+    ...analysisDataset,
     summary,
     forecast,
+    prediction,
+    narrative,
     loaded,
     onboardingComplete: state.onboardingComplete,
     notificationsEnabled: state.notificationsEnabled,
@@ -95,14 +131,14 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       ...current,
       transactions: [...current.transactions, ...transactions],
     })),
-    runSimulation: (input) => simulatePurchase(dataset, input),
+    runSimulation: (input) => simulatePurchase(analysisDataset, input),
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
     resetDemo: () => setState({ ...demoDataset, onboardingComplete: true, notificationsEnabled: state.notificationsEnabled }),
     eraseLocalData: async () => {
       await clearFinanceState();
       setState(initialState);
     },
-  }), [dataset, forecast, loaded, state.notificationsEnabled, state.onboardingComplete, summary]);
+  }), [analysisDataset, dataset, forecast, loaded, narrative, prediction, state.notificationsEnabled, state.onboardingComplete, summary]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

@@ -75,19 +75,55 @@ function ActionCard({ action, index }: { action: SavingsAction; index: number })
 }
 
 export function ForecastScreen() {
-  const { forecast } = useFinance();
+  const { forecast, prediction, narrative } = useFinance();
   const widest = Math.max(
     ...forecast.categories.map((c) => Math.max(c.projectedMonthEnd, c.baselineMonth)),
     1,
   );
 
   const savingsShort = !forecast.onTrack;
+  const chanceOutOf100 = Math.round(prediction.shortfallProbability * 100);
+  const risky = prediction.shortfallProbability >= 0.2;
 
   return (
     <Screen
-      title="Forecast"
+      title="What happens next"
       subtitle={`Day ${forecast.daysElapsed} of the month — ${forecast.daysRemaining} days still to pay for.`}
     >
+      {/* ---- The prediction, in words first ---- */}
+      <View style={[styles.predictionCard, risky && styles.predictionCardAlert]}>
+        <Text style={[styles.predictionHeadline, risky && styles.predictionHeadlineAlert]}>
+          {narrative.headline}
+        </Text>
+
+        {/* A bar rather than a bare percentage: "45%" means little on its own,
+            but a bar that is nearly half full is understood instantly. */}
+        <View style={styles.chanceRow}>
+          <View style={styles.chanceTrack}>
+            <View style={[styles.chanceFill, { width: `${Math.max(2, chanceOutOf100)}%` }]} />
+          </View>
+          <Text style={styles.chanceValue}>{chanceOutOf100}%</Text>
+        </View>
+        <Text style={styles.chanceCaption}>
+          chance of running short before your next money arrives
+        </Text>
+
+        <Text style={styles.predictionBody}>{narrative.body}</Text>
+
+        <View style={styles.methodBox}>
+          {/* Says plainly that this is a sample account, so nobody in the room
+              mistakes a demo figure for a real one — and flags what lands next. */}
+          <View style={styles.demoChip}>
+            <Text style={styles.demoChipText}>Demo calculation · AI wording arrives tomorrow</Text>
+          </View>
+          <Text style={styles.methodTitle}>How this was worked out</Text>
+          <Text style={styles.methodText}>{prediction.method}</Text>
+          <Text style={styles.methodText}>
+            {prediction.daysObserved} days of sample spending · {prediction.confidence} confidence
+          </Text>
+        </View>
+      </View>
+
       {/* ---- The headline: where this month ends ---- */}
       <View style={[styles.hero, savingsShort && styles.heroAlert]}>
         <Text style={styles.heroLabel}>
@@ -183,6 +219,45 @@ export function ForecastScreen() {
 }
 
 const styles = StyleSheet.create({
+  predictionCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.xl,
+    padding: spacing.xl,
+    marginBottom: spacing.lg,
+  },
+  predictionCardAlert: { borderColor: colors.primary },
+  predictionHeadline: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 29, letterSpacing: -0.4 },
+  predictionHeadlineAlert: { color: colors.primary },
+
+  chanceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xl },
+  chanceTrack: { flex: 1, height: 10, borderRadius: 5, backgroundColor: colors.backgroundRaised, overflow: 'hidden' },
+  chanceFill: { height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  chanceValue: { color: colors.text, fontSize: 18, fontWeight: '900', minWidth: 48, textAlign: 'right' },
+  chanceCaption: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
+
+  predictionBody: { color: colors.textSecondary, fontSize: 14, lineHeight: 22, marginTop: spacing.xl },
+
+  methodBox: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  demoChip: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radii.pill,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    marginBottom: spacing.md,
+  },
+  demoChipText: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.3 },
+  methodTitle: { color: colors.textMuted, fontSize: 10, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
+  methodText: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 5 },
+
   hero: {
     backgroundColor: colors.surface,
     borderWidth: 1,

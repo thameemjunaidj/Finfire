@@ -43,13 +43,45 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   const debitTransactions = transactions.filter((item) => item.direction === 'debit' && item.date <= asOf);
   const monthTotals = spendingByMonth(debitTransactions);
   const currentMonthSpending = monthTotals.get(currentKey) ?? 0;
+  /**
+   * Only months we hold from the 1st count as "normal".
+   *
+   * With a single month of history the previous month is a stub — a week or
+   * two of data — and using it as the baseline makes an ordinary month look
+   * like a 300% spending surge. Excluding partial months means a new user
+   * falls back to their daily rate instead, which is honest rather than
+   * alarming.
+   */
+  const earliestDate = debitTransactions.length
+    ? debitTransactions.reduce((earliest, item) => (item.date < earliest ? item.date : earliest), debitTransactions[0].date)
+    : asOf;
   const historicalEntries = [...monthTotals.entries()]
     .filter(([key]) => key < currentKey)
+    .filter(([key]) => earliestDate <= `${key}-01`)
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(-3);
+  /**
+   * "Normal" with no complete month behind you.
+   *
+   * The old fallback compared a full-month PROJECTION against the month SO
+   * FAR, so a brand-new user was told their spending was accelerating on day
+   * one, every time, purely because 31 days cost more than 21. That is the
+   * fastest way to teach someone the alerts are noise.
+   *
+   * Instead, normal is the rate over everything EXCEPT the last week, scaled
+   * to a month. Then a surge means "this week is unlike your other weeks",
+   * which is a real signal and works from about two weeks of history.
+   */
+  const priorWindowEnd = addDays(asOf, -7);
+  const priorRows = debitTransactions.filter((item) => item.date <= priorWindowEnd);
+  const priorDays = priorRows.length ? Math.max(1, daysBetween(earliestDate, priorWindowEnd)) : 0;
+  const priorMonthlyRate = priorDays > 0
+    ? (priorRows.reduce((sum, item) => sum + item.amount, 0) / priorDays) * daysInMonth(asOf)
+    : 0;
+
   const normalMonthlySpending = historicalEntries.length
     ? historicalEntries.reduce((sum, [, value]) => sum + value, 0) / historicalEntries.length
-    : Math.max(profile.essentialMonthlyExpenses, currentMonthSpending);
+    : Math.max(profile.essentialMonthlyExpenses, priorMonthlyRate);
   const projectedMonthlySpending = (currentMonthSpending / elapsedDays) * daysInMonth(asOf);
   const surgePercentage = normalMonthlySpending > 0
     ? ((projectedMonthlySpending - normalMonthlySpending) / normalMonthlySpending) * 100
@@ -104,11 +136,51 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
     }
   });
 
+  /**
+   * Bills that have not been charged yet.
+   *
+   * The loop above can only judge bills that already appear as transactions,
+   * which means the app stays silent about a bill that is about to land at
+   * three times its usual size — the single most useful thing it could warn
+   * about, and the entire premise of being preventive rather than a report.
+   */
+  recurringPayments
+    .filter((payment) => ['rent', 'utilities', 'health'].includes(payment.category))
+    .filter((payment) => payment.nextPaymentDate > asOf)
+    .forEach((payment) => {
+      const difference = payment.currentAmount - payment.previousAmount;
+      const increase = payment.previousAmount > 0 ? (difference / payment.previousAmount) * 100 : 0;
+      if (increase < 50 || difference < 100) return;
+
+      const score = clamp((increase / 80) * 100);
+      billAnomalyScore = Math.max(billAnomalyScore, score);
+      alerts.push(createAlert({
+        id: `upcoming-bill-${payment.id}`,
+        type: 'bill_anomaly',
+        severity: increase >= 100 ? 'critical' : 'high',
+        title: `${payment.merchant} bill is about to jump`,
+        message: `Due on ${payment.nextPaymentDate}, and ${round(increase)}% higher than last time.`,
+        evidence: `${formatCurrency(payment.previousAmount)} last time → ${formatCurrency(payment.currentAmount)} due`,
+        recommendation: `Set ${formatCurrency(payment.currentAmount)} aside before ${payment.nextPaymentDate}, and check the reading if it looks wrong.`,
+        impactAmount: difference,
+        componentScore: score,
+      }));
+    });
+
   let subscriptionIncreaseScore = 0;
   recurringPayments.forEach((payment) => {
+    /**
+     * Only categories where a rising charge means a PRICE change. Since
+     * recurring payments are now detected automatically, an electricity bill
+     * that doubled would otherwise be reported twice — once here and once as a
+     * bill anomaly — which is how an alert list starts to feel like noise.
+     */
+    if (!['subscription', 'entertainment'].includes(payment.category)) return;
+
     const increaseAmount = payment.currentAmount - payment.previousAmount;
     const increasePercentage = payment.previousAmount > 0 ? (increaseAmount / payment.previousAmount) * 100 : 0;
-    if (increasePercentage >= 5 && increaseAmount >= 50) {
+    // ₹20 floor rather than ₹50: a ₹199 plan going to ₹229 is a real 15% rise.
+    if (increasePercentage >= 5 && increaseAmount >= 20) {
       const score = clamp(increasePercentage);
       subscriptionIncreaseScore = Math.max(subscriptionIncreaseScore, score);
       alerts.push(createAlert({
@@ -126,9 +198,19 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   });
 
   const sevenDaysLater = addDays(asOf, 7);
-  const upcoming = recurringPayments.filter(
-    (payment) => payment.nextPaymentDate > asOf && payment.nextPaymentDate <= sevenDaysLater,
-  );
+  /**
+   * "Payments piling up" is about money that leaves WITHOUT a decision. A
+   * weekly grocery run or a monthly Myntra habit is predictable, but nobody
+   * gets a penalty for skipping it — counting those would inflate the pile-up
+   * warning with spending the person can simply not do.
+   *
+   * Declared payments always count: if someone told the app about a payment,
+   * they know better than our inference does.
+   */
+  const AUTOMATIC_CATEGORIES = ['rent', 'utilities', 'subscription', 'health'];
+  const upcoming = recurringPayments
+    .filter((payment) => !payment.id.startsWith('detected-') || AUTOMATIC_CATEGORIES.includes(payment.category))
+    .filter((payment) => payment.nextPaymentDate > asOf && payment.nextPaymentDate <= sevenDaysLater);
   const upcomingPaymentsTotal = upcoming.reduce((sum, payment) => sum + payment.currentAmount, 0);
   const disposableBalance = Math.max(0, profile.availableBalance);
   const upcomingRatio = disposableBalance > 0 ? upcomingPaymentsTotal / disposableBalance : 1;
