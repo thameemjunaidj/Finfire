@@ -87,7 +87,12 @@ export function AlertCard({ alert, onPress }: { alert: FinancialAlert; onPress?:
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
+<<<<<<< HEAD
       accessibilityLabel={`${alert.severity} alert: ${alert.title}`}
+=======
+      accessibilityLabel={`${titleCase(alert.severity)} warning: ${alert.title}. ${alert.message}`}
+      accessibilityHint={onPress ? 'Opens evidence and recommended action' : undefined}
+>>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
       onPress={onPress}
       style={({ pressed }) => [
         styles.card,
@@ -160,3 +165,4 @@ const styles = StyleSheet.create({
   },
   message: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 4 },
 });
+//Typescript(specifically TSX — TypeScript with JSX)

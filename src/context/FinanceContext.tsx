@@ -7,21 +7,35 @@ import { predictOutcome } from '../engine/predictionEngine';
 import { explainOnDevice } from '../services/ai';
 import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
 import {
+  addTransactionToState,
+  addRecurringPaymentToState,
+  appendImportedTransactions,
+  createManualTransaction,
+  createRecurringPayment,
+  removeRecurringPaymentFromState,
+  removeTransactionFromState,
+} from '../services/financeState';
+import {
   FinanceDataset,
   FinancialSummary,
   PersistedFinanceState,
   PredictionNarrative,
   SimulationInput,
   SimulationResult,
+<<<<<<< HEAD
   SpendingForecast,
   SpendingPrediction,
+=======
+>>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
   Transaction,
+  TransactionImportSummary,
+  RecurringPayment,
+  SpendingForecast,
   UserProfile,
 } from '../types/finance';
 
 interface FinanceContextValue extends FinanceDataset {
   summary: FinancialSummary;
-  /** Forward-looking projection: month-end spend, savings and how to fix them. */
   forecast: SpendingForecast;
   /** Simulated outcome: how likely the money runs out, and the likely range. */
   prediction: SpendingPrediction;
@@ -33,7 +47,11 @@ interface FinanceContextValue extends FinanceDataset {
   useDemoAccount: () => void;
   completeCustomSetup: (profile: UserProfile) => void;
   addTransaction: (transaction: Omit<Transaction, 'id' | 'source'>) => void;
-  importTransactions: (transactions: Transaction[]) => void;
+  deleteTransaction: (id: string) => void;
+  importTransactions: (transactions: Transaction[]) => TransactionImportSummary;
+  updateProfile: (profile: UserProfile) => void;
+  addRecurringPayment: (payment: Omit<RecurringPayment, 'id'>) => void;
+  deleteRecurringPayment: (id: string) => void;
   runSimulation: (input: SimulationInput) => SimulationResult;
   setNotificationsEnabled: (value: boolean) => void;
   resetDemo: () => void;
@@ -113,6 +131,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       onboardingComplete: true,
       notificationsEnabled: true,
     }),
+<<<<<<< HEAD
     addTransaction: (transaction) => setState((current) => ({
       ...current,
       profile: {
@@ -132,13 +151,30 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       transactions: [...current.transactions, ...transactions],
     })),
     runSimulation: (input) => simulatePurchase(analysisDataset, input),
+=======
+    addTransaction: (transaction) => setState((current) => addTransactionToState(current, createManualTransaction(transaction))),
+    deleteTransaction: (id) => setState((current) => removeTransactionFromState(current, id)),
+    importTransactions: (transactions) => {
+      const importSummary = appendImportedTransactions(state, transactions).summary;
+      setState((current) => appendImportedTransactions(current, transactions).state);
+      return importSummary;
+    },
+    updateProfile: (profile) => setState((current) => ({ ...current, profile })),
+    addRecurringPayment: (payment) => setState((current) => addRecurringPaymentToState(current, createRecurringPayment(payment))),
+    deleteRecurringPayment: (id) => setState((current) => removeRecurringPaymentFromState(current, id)),
+    runSimulation: (input) => simulatePurchase(dataset, input),
+>>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
     resetDemo: () => setState({ ...demoDataset, onboardingComplete: true, notificationsEnabled: state.notificationsEnabled }),
     eraseLocalData: async () => {
       await clearFinanceState();
       setState(initialState);
     },
+<<<<<<< HEAD
   }), [analysisDataset, dataset, forecast, loaded, narrative, prediction, state.notificationsEnabled, state.onboardingComplete, summary]);
+=======
+  }), [dataset, forecast, loaded, state, summary]);
+>>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

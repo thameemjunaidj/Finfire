@@ -9,7 +9,14 @@ export function ChoiceChips<T extends string>({ values, selected, onSelect, styl
       {values.map((value) => {
         const active = selected === value;
         return (
-          <Pressable key={value} onPress={() => onSelect(value)} style={[styles.chip, active && styles.activeChip]}>
+          <Pressable
+            key={value}
+            accessibilityRole="radio"
+            accessibilityLabel={titleCase(value)}
+            accessibilityState={{ selected: active }}
+            onPress={() => onSelect(value)}
+            style={[styles.chip, active && styles.activeChip]}
+          >
             <Text style={[styles.label, active && styles.activeLabel]}>{titleCase(value)}</Text>
           </Pressable>
         );

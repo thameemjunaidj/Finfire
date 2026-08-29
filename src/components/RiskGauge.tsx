@@ -7,7 +7,11 @@ import { riskColor } from '../utils/format';
 export function RiskGauge({ score, band, explanation }: { score: number; band: RiskBand; explanation: string }) {
   const accent = riskColor(band);
   return (
-    <View style={[styles.card, { borderColor: `${accent}80` }]}>
+    <View
+      accessible
+      accessibilityLabel={`Financial risk ${band}, score ${score} out of 100. ${explanation}`}
+      style={[styles.card, { borderColor: `${accent}80` }]}
+    >
       <View style={styles.topRow}>
         <View>
           <Text style={styles.eyebrow}>FINANCIAL RISK</Text>

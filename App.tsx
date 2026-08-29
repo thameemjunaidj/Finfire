@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, LogBox, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AppTab, BottomTabs } from './src/components/BottomTabs';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { SettingsModal } from './src/components/SettingsModal';
 import { FinanceProvider, useFinance } from './src/context/FinanceContext';
 import { AlertsScreen } from './src/screens/AlertsScreen';
@@ -27,7 +28,7 @@ LogBox.ignoreLogs([
   '`expo-notifications` functionality is not fully supported in Expo Go',
 ]);
 
-function FinExtinguisherApp() {
+function FinFireApp() {
   const { loaded, onboardingComplete, summary } = useFinance();
   const [tab, setTab] = useState<AppTab>('home');
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -57,7 +58,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" backgroundColor={colors.background} />
-      <FinanceProvider><FinExtinguisherApp /></FinanceProvider>
+      <ErrorBoundary><FinanceProvider><FinFireApp /></FinanceProvider></ErrorBoundary>
     </SafeAreaProvider>
   );
 }

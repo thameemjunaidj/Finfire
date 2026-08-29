@@ -10,13 +10,15 @@ import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
 import { APP_NAME } from '../theme/brand';
 import { FinancialAlert } from '../types/finance';
-import { formatCurrency, riskColor } from '../utils/format';
+import { toIsoDate } from '../utils/dates';
+import { formatCurrency, formatDate, riskColor } from '../utils/format';
 
 export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () => void; onOpenSettings: () => void }) {
   const { profile, summary } = useFinance();
   const [selectedAlert, setSelectedAlert] = useState<FinancialAlert | null>(null);
   const maxSpend = Math.max(...summary.monthlySpend.map((item) => item.amount), 1);
-  const month = new Date(`${profile.analysisDate ?? new Date().toISOString().slice(0, 10)}T12:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const dashboardDate = profile.analysisDate ?? toIsoDate(new Date());
+  const month = new Date(`${dashboardDate}T12:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   return (
     <>
       <Screen
@@ -24,6 +26,10 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
         subtitle={`${month} · Your financial early-warning dashboard`}
         action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
       >
+        <View style={styles.dataStatus} accessible accessibilityLabel={`${profile.id.startsWith('demo-') ? 'Demo' : 'Local'} data evaluated ${formatDate(dashboardDate, true)}`}>
+          <Feather name={profile.id.startsWith('demo-') ? 'play-circle' : 'lock'} size={14} color={colors.primary} />
+          <Text style={styles.dataStatusText}>{profile.id.startsWith('demo-') ? 'DEMO DATA' : 'LOCAL PROFILE'} · Evaluated {formatDate(dashboardDate, true)}</Text>
+        </View>
         <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
         {/* Two metrics, not four. Projected spend and upcoming payments both
             now live on the Forecast tab, where they have room to be explained;
@@ -40,7 +46,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             {summary.monthlySpend.map((item, index) => {
               const active = index === summary.monthlySpend.length - 1;
               return (
-                <View key={`${item.month}-${index}`} style={styles.barGroup}>
+                <View key={`${item.month}-${index}`} style={styles.barGroup} accessible accessibilityLabel={`${item.month} spending ${formatCurrency(item.amount)}`}>
                   <Text style={styles.barValue}>{formatCurrency(item.amount, true)}</Text>
                   <View style={styles.barTrack}><View style={[styles.bar, { height: `${Math.max(7, (item.amount / maxSpend) * 100)}%`, backgroundColor: active ? colors.primary : colors.border }]} /></View>
                   <Text style={[styles.monthLabel, active && { color: colors.primary }]}>{item.month}</Text>
@@ -49,6 +55,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             })}
           </View>
         </View>
+<<<<<<< HEAD
         <SectionTitle title="Needs attention" action={<Pressable onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
         {/* Two, not three — Home is a glance, the Alerts tab is the full list. */}
         {summary.alerts.slice(0, 2).map((alert) => <AlertCard key={alert.id} alert={alert} onPress={() => setSelectedAlert(alert)} />)}
@@ -58,6 +65,10 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             <Feather name="arrow-right" size={14} color={colors.textMuted} />
           </Pressable>
         ) : null}
+=======
+        <SectionTitle title="Top warnings" action={<Pressable accessibilityRole="button" accessibilityLabel="View all warnings" onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
+        {summary.alerts.slice(0, 3).map((alert) => <AlertCard key={alert.id} alert={alert} onPress={() => setSelectedAlert(alert)} />)}
+>>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
         {!summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>No urgent warnings</Text><Text style={styles.emptyText}>{APP_NAME} will explain any material change it detects.</Text></View> : null}
       </Screen>
       <AlertDetailsModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
@@ -67,6 +78,8 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
 
 const styles = StyleSheet.create({
   settings: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  dataStatus: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: `${colors.primary}55`, borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 7, marginBottom: spacing.md },
+  dataStatusText: { color: colors.primary, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.5 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.md },
   chartCard: { backgroundColor: colors.surface, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },
   chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

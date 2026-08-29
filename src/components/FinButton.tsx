@@ -23,11 +23,13 @@ export function FinButton({ label, onPress, icon, variant = 'primary', disabled,
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       disabled={disabled || loading}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: palette.background, borderColor: palette.border, opacity: disabled ? 0.45 : pressed ? 0.78 : 1 },
+        { backgroundColor: palette.background, borderColor: palette.border, opacity: disabled || loading ? 0.45 : pressed ? 0.78 : 1 },
         style,
       ]}
     >

@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChoiceChips } from '../components/ChoiceChips';
 import { FinButton } from '../components/FinButton';
 import { FormField } from '../components/FormField';
@@ -10,7 +10,10 @@ import { scheduleRiskNotification } from '../services/notifications';
 import { colors, radii, spacing } from '../theme/colors';
 import { APP_NAME } from '../theme/brand';
 import { SimulationResult, TransactionCategory } from '../types/finance';
+import { showMessage } from '../utils/alerts';
+import { toIsoDate } from '../utils/dates';
 import { formatCurrency, riskColor } from '../utils/format';
+import { isDateOnOrAfter, isValidIsoDate, parsePositiveMoney } from '../utils/validation';
 
 const simulatorCategories: TransactionCategory[] = ['shopping', 'food', 'entertainment', 'transport', 'health', 'other'];
 
@@ -19,14 +22,22 @@ export function SimulatorScreen() {
   const [description, setDescription] = useState('New phone purchase');
   const [amount, setAmount] = useState('5000');
   const [category, setCategory] = useState<TransactionCategory>('shopping');
-  const [date, setDate] = useState(profile.analysisDate ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(profile.analysisDate ?? toIsoDate(new Date()));
   const [result, setResult] = useState<SimulationResult | null>(null);
-  const numericAmount = Number(amount);
-  const canSimulate = numericAmount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const numericAmount = parsePositiveMoney(amount);
+  const analysisDate = profile.analysisDate ?? toIsoDate(new Date());
+  const canSimulate = numericAmount !== null
+    && isValidIsoDate(date)
+    && isDateOnOrAfter(date, analysisDate)
+    && date <= profile.nextIncomeDate;
   const quickAmounts = useMemo(() => ['1000', '2500', '5000', '10000'], []);
+  useEffect(() => {
+    setDate(profile.analysisDate ?? toIsoDate(new Date()));
+    setResult(null);
+  }, [profile.id, profile.analysisDate, profile.nextIncomeDate]);
   const simulate = () => {
     if (!canSimulate) return;
-    setResult(runSimulation({ description: description.trim() || 'Hypothetical purchase', amount: numericAmount, category, proposedDate: date }));
+    setResult(runSimulation({ description: description.trim() || 'Hypothetical purchase', amount: numericAmount as number, category, proposedDate: date }));
   };
   const notify = async () => {
     if (!result) return;
@@ -34,18 +45,29 @@ export function SimulatorScreen() {
       `🔥 ${APP_NAME} purchase warning`,
       `This ${formatCurrency(result.input.amount)} purchase could change your runway from ${result.before.runwayDays} to ${result.after.runwayDays} days.`,
     );
-    Alert.alert(shown ? 'Warning sent' : 'Use your phone to test', shown ? 'The local notification is ready.' : 'Browser preview cannot display native notifications.');
+    showMessage(shown ? 'Warning sent' : 'Use your phone to test', shown ? 'The local notification is ready.' : 'Browser preview cannot display native notifications.');
   };
   return (
     <Screen title="What if?" subtitle="Preview a purchase without changing your real transaction data.">
       <View style={styles.formCard}>
         <View style={styles.formHeader}><View style={styles.formIcon}><Feather name="sliders" size={20} color={colors.primary} /></View><View><Text style={styles.formTitle}>Purchase impact</Text><Text style={styles.formHelper}>All five detectors rerun instantly.</Text></View></View>
         <FormField label="Purchase description" value={description} onChangeText={setDescription} placeholder="e.g. New phone" />
-        <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="5000" />
-        <View style={styles.quickRow}>{quickAmounts.map((value) => <Text key={value} onPress={() => setAmount(value)} style={[styles.quickAmount, amount === value && styles.quickActive]}>{formatCurrency(Number(value))}</Text>)}</View>
+        <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="5000" />
+        <View style={styles.quickRow}>{quickAmounts.map((value) => (
+          <Pressable
+            key={value}
+            accessibilityRole="button"
+            accessibilityLabel={`Use ${formatCurrency(Number(value))}`}
+            onPress={() => setAmount(value)}
+            style={[styles.quickAmount, amount === value && styles.quickActive]}
+          >
+            <Text style={[styles.quickAmountText, amount === value && styles.quickActiveText]}>{formatCurrency(Number(value))}</Text>
+          </Pressable>
+        ))}</View>
         <Text style={styles.label}>Category</Text>
         <ChoiceChips values={simulatorCategories} selected={category} onSelect={setCategory} />
         <View style={styles.dateField}><FormField label="Proposed date (YYYY-MM-DD)" value={date} onChangeText={setDate} /></View>
+        <Text style={styles.dateHelper}>Choose a date from {analysisDate} through {profile.nextIncomeDate}.</Text>
         <FinButton label="Run safety check" icon="activity" disabled={!canSimulate} onPress={simulate} />
       </View>
       {result ? (
@@ -92,10 +114,13 @@ const styles = StyleSheet.create({
   formTitle: { color: colors.text, fontSize: 17, fontWeight: '900' },
   formHelper: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: -4, marginBottom: spacing.lg },
-  quickAmount: { color: colors.textSecondary, backgroundColor: colors.backgroundRaised, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: 7, fontSize: 11, fontWeight: '800', overflow: 'hidden' },
-  quickActive: { color: colors.primary, backgroundColor: colors.primarySoft, borderColor: colors.primary },
+  quickAmount: { backgroundColor: colors.backgroundRaised, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: 7, overflow: 'hidden' },
+  quickAmountText: { color: colors.textSecondary, fontSize: 11, fontWeight: '800' },
+  quickActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+  quickActiveText: { color: colors.primary },
   label: { color: colors.textSecondary, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm },
   dateField: { marginTop: spacing.lg },
+  dateHelper: { color: colors.textMuted, fontSize: 10, marginTop: -spacing.sm, marginBottom: spacing.lg },
   resultWrap: { marginTop: spacing.lg },
   verdict: { borderRadius: radii.lg, borderWidth: 1, padding: spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   verdictEyebrow: { color: colors.textMuted, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
