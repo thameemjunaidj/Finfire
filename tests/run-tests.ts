@@ -36,9 +36,9 @@ assert(types.has('low_runway'), 'detects a low money runway');
 assert(summary.riskScore >= 0 && summary.riskScore <= 100, 'clamps risk score to 0–100');
 assert(summary.upcomingPaymentsCount === 3, 'counts three upcoming payments');
 approximately(summary.upcomingPaymentsTotal, 657, 0, 'upcoming total');
-approximately(summary.runwayDays, 7, 0, 'demo runway');
+approximately(summary.runwayDays, 9, 0, 'demo runway');
 
-// The electricity bill is due on the 27th, so it is not a transaction yet.
+// The larger phone recharge is due on the 24th, so it is not a transaction yet.
 // This asserts the app warns BEFORE the charge lands, which is the whole point.
 assert(
   summary.alerts.some((alert) => alert.id.startsWith('upcoming-bill-')),

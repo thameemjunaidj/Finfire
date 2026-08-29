@@ -2,16 +2,15 @@
  * demoData.ts — the demo account.
  *
  * WHO THIS IS
- * Aditya, 19, a day-scholar engineering student. His parents pay the college
- * fees and he eats at home, so the only money that passes through his hands is
- * ₹2,000 of pocket money on the 1st, plus whatever he gets for helping at his
- * uncle's shop some months.
+ * Aditya, 19, is an engineering student whose tuition and accommodation are
+ * paid directly by his parents. He personally manages a ₹10,000 monthly
+ * allowance for food outside college, transport, phone bills, subscriptions,
+ * study supplies and outings.
  *
- * That ₹2,000 is the entire point. At student scale the numbers stop being
- * abstract: three subscriptions and one recharge eat a THIRD of his month
- * before he buys a single cup of tea, and a ₹50 Netflix increase is not a
- * rounding error — it is 2.5% of everything he has. Every judge in the room
- * has lived this exact budget, which is why it lands harder than a salary.
+ * This is intentionally an ordinary student account: most purchases are
+ * between ₹30 and ₹300, with the occasional book, movie or meal out. The
+ * account still contains a stressful exam week so the app has something
+ * useful to notice during a demonstration.
  *
  * PRICES (Netflix and Spotify checked August 2026)
  *   Netflix Mobile          ₹149  → Basic ₹199 when the mobile plan went
@@ -21,10 +20,9 @@
  * THE FIVE PLANTED SITUATIONS
  *   1. Netflix ₹149 → ₹199                 → subscription price increase
  *   2. Recharge ₹239 → ₹399 due on the 24th → a bill about to jump
- *   3. A heavy last week                → spending surge
+ *   3. Extra food deliveries in exam week → spending surge
  *   4. ₹657 of charges between 24th–27th    → payments piling up
- *   5. ₹1,300 left with 11 days to go       → short runway, and a better
- *                                             than even chance of running dry
+ *   5. A low balance with 11 days to go  → money may not last until allowance
  *
  * Generated from a fixed seed, so the account is identical every run.
  */
@@ -133,17 +131,9 @@ function add(
 
 /* --- Money coming in ---------------------------------------------- */
 
-// Pocket money on the 1st. This is the whole budget.
+// Monthly allowance for day-to-day student expenses.
 monthlyDates(START, DEMO_ANALYSIS_DATE, 1).forEach((date) => {
-  add(date, 'Pocket Money', 2000, 'income', 'credit');
-});
-
-// Helping at his uncle's shop — some months, not all. Uneven income is
-// exactly why a single averaged prediction would be misleading here.
-const sideIncome = [400, 0, 600];
-monthlyDates(START, DEMO_ANALYSIS_DATE, 17).forEach((date, index) => {
-  const amount = sideIncome[index % sideIncome.length];
-  if (amount > 0) add(date, 'Shop Help', amount, 'income', 'credit');
+  add(date, 'Monthly Allowance', 10_000, 'income', 'credit');
 });
 
 /* --- Fixed monthly outgoings -------------------------------------- */
@@ -176,20 +166,20 @@ for (let offset = 0; offset <= HISTORY_DAYS; offset += 1) {
   // and the very alert we planted stops firing.
   const inSurge = daysAgo <= 7;
 
-  // Canteen snack between classes — most college days, small money.
-  if (!isWeekend && random() < 0.68) {
-    add(date, 'College Canteen', 15 + random() * 18, 'food');
+  // Breakfast or lunch from the college canteen on most class days.
+  if (!isWeekend && random() < 0.78) {
+    add(date, 'College Canteen', 60 + random() * 100, 'food');
   }
 
   // Tea and vada at the stall outside the gate.
   if (!isWeekend && random() < 0.42) {
-    add(date, 'Tea Stall', 10 + random() * 12, 'food');
+    add(date, 'Tea Stall', 20 + random() * 35, 'food');
   }
 
-  // Bus to college, occasionally a shared auto when he is late.
-  if (!isWeekend && random() < 0.5) {
-    const auto = random() < 0.15;
-    add(date, auto ? 'Share Auto' : 'City Bus', auto ? 25 + random() * 18 : 8 + random() * 10, 'transport');
+  // Bus to college, occasionally a shared auto when running late.
+  if (!isWeekend && random() < 0.72) {
+    const auto = random() < 0.2;
+    add(date, auto ? 'Share Auto' : 'City Bus', auto ? 70 + random() * 50 : 25 + random() * 25, 'transport');
   }
 
   // Ordering in is a treat, not a habit — until the last week, when
@@ -202,29 +192,30 @@ for (let offset = 0; offset <= HISTORY_DAYS; offset += 1) {
    * surge dramatic enough to push the month to ₹7,300, which on ₹2,000 of
    * pocket money is not a warning, it is a fantasy. Roughly five extra orders
    * in a week is what actually happens, and it is enough: on this budget
-   * ₹800 of Swiggy IS the emergency.
+   * several extra food orders can still consume a meaningful part of the
+   * allowance without turning the account into a caricature.
    */
   const deliveryChance = inSurge ? 0.5 : isWeekend ? 0.09 : 0.03;
   if (random() < deliveryChance) {
-    add(date, random() < 0.5 ? 'Swiggy' : 'Zomato', inSurge ? 120 + random() * 100 : 110 + random() * 110, 'food');
+    add(date, random() < 0.5 ? 'Swiggy' : 'Zomato', inSurge ? 220 + random() * 160 : 180 + random() * 180, 'food');
   }
   if (inSurge && random() < 0.25) {
-    add(date, 'Swiggy', 90 + random() * 80, 'food');
+    add(date, 'Swiggy', 180 + random() * 140, 'food');
   }
 
   // Printouts, lab records, assignment sheets.
   if (random() < 0.12) {
-    add(date, 'Campus Xerox', 8 + random() * 20, 'other');
+    add(date, 'Campus Xerox', 20 + random() * 60, 'other');
   }
 }
 
 /* --- One-off events that make the story --------------------------- */
 
-add(shift(DEMO_ANALYSIS_DATE, -8), 'Friend Birthday Treat', 120, 'food');
-add(shift(DEMO_ANALYSIS_DATE, -7), 'PVR Cinemas', 150, 'entertainment');
-add(shift(DEMO_ANALYSIS_DATE, -5), 'Myntra', 199, 'shopping');          // sale t-shirt
-add(shift(DEMO_ANALYSIS_DATE, -3), 'Apollo Pharmacy', 60, 'health');
-add(shift(DEMO_ANALYSIS_DATE, -24), 'Landmark Books', 240, 'shopping'); // semester textbook
+add(shift(DEMO_ANALYSIS_DATE, -8), 'Friend Birthday Treat', 650, 'food');
+add(shift(DEMO_ANALYSIS_DATE, -7), 'PVR Cinemas', 380, 'entertainment');
+add(shift(DEMO_ANALYSIS_DATE, -5), 'Myntra', 899, 'shopping');          // sale clothing
+add(shift(DEMO_ANALYSIS_DATE, -3), 'Apollo Pharmacy', 220, 'health');
+add(shift(DEMO_ANALYSIS_DATE, -24), 'Landmark Books', 850, 'shopping'); // semester books
 
 const transactions = rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
@@ -233,10 +224,8 @@ const transactions = rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date
 /* ---------------------------------------------------------------- */
 
 /**
- * ₹657 between the 24th and the 27th, against ₹1,180 in hand and eleven days
- * before any more arrives. More than half of what he has left, leaving on its
- * own, for things he signed up for months ago — that is the moment this app
- * exists to catch.
+ * ₹657 between the 24th and the 27th. Each payment is small, but together they
+ * arrive just before the next allowance and are easy for a student to forget.
  */
 export const demoRecurringPayments: RecurringPayment[] = [
   { id: 'upcoming-jio', merchant: 'Jio Recharge', category: 'utilities', previousAmount: 239, currentAmount: 399, nextPaymentDate: '2026-08-24', essential: true },
@@ -248,14 +237,15 @@ export const demoDataset: FinanceDataset = {
   profile: {
     id: 'demo-aditya',
     name: 'Aditya',
-    monthlyIncome: 2_000,
+    monthlyIncome: 10_000,
     /**
      * Chosen so the simulation lands near a coin flip rather than a
      * certainty. A demo reporting 100% could have been a subtraction; one
      * reporting the sixties shows the model weighing how the remaining days
      * might actually go.
      */
-    availableBalance: 1_300,
+    // ₹10,000 allowance minus roughly ₹6,400 already spent this month.
+    availableBalance: 3_600,
     nextIncomeDate: '2026-09-01',
     essentialMonthlyExpenses: 657, // recharge + the two subscriptions
     analysisDate: DEMO_ANALYSIS_DATE,
