@@ -1,0 +1,5 @@
+date,merchant,amount,direction,category,essential
+2026-08-15,College Canteen,180,debit,food,no
+2026-08-16,Metro Recharge,500,debit,transport,yes
+2026-08-17,"Cafe, Vellore",350,debit,food,no
+2026-08-18,Freelance Payment,2500,credit,income,yes
