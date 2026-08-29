@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2020",
+    "outDir": ".test-build",
+    "noEmit": false,
+    "declaration": false
+  },
+  "include": [
+    "src/types/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/data/**/*.ts",
+    "src/engine/**/*.ts",
+    "src/services/csv.ts",
+    "tests/**/*.ts"
+  ]
+}
