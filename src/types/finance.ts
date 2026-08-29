@@ -119,6 +119,42 @@ export interface PersistedFinanceState extends FinanceDataset {
 }
 
 /* ------------------------------------------------------------------ */
+/* The learned model — trained on the phone, from this person's own days */
+/* ------------------------------------------------------------------ */
+
+/** Something the model worked out about this person, said in plain words. */
+export interface LearnedPattern {
+  id: string;
+  title: string;
+  detail: string;
+  /** 0-1. How strongly the data supports it; used only for ordering. */
+  strength: number;
+}
+
+/** A small model fitted on the device. Six numbers, no server, no library. */
+export interface LearnedModel {
+  /** False when there was too little history to learn anything honest. */
+  trained: boolean;
+  weights: number[];
+  bias: number;
+  /** Scaling used during training, needed to run the model afterwards. */
+  means: number[];
+  deviations: number[];
+  daysTrainedOn: number;
+  /** Typical error in rupees per day — how much to trust it. */
+  averageError: number;
+  /** What it got wrong on each past day; the simulation samples these. */
+  residuals: number[];
+  /** A ceiling on any single day's prediction, so the model cannot extrapolate
+   *  beyond anything this person has ever actually spent. */
+  maxPlausibleDay: number;
+  /** How many pay cycles the history covers. Below two, the money-cycle
+   *  features are switched off because they cannot be told apart from time. */
+  incomeCycles: number;
+  patterns: LearnedPattern[];
+}
+
+/* ------------------------------------------------------------------ */
 /* Prediction — a range and a likelihood, not a single number          */
 /* ------------------------------------------------------------------ */
 

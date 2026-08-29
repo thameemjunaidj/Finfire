@@ -75,7 +75,7 @@ function ActionCard({ action, index }: { action: SavingsAction; index: number })
 }
 
 export function ForecastScreen() {
-  const { forecast, prediction, narrative } = useFinance();
+  const { forecast, prediction, narrative, learned } = useFinance();
   const widest = Math.max(
     ...forecast.categories.map((c) => Math.max(c.projectedMonthEnd, c.baselineMonth)),
     1,
@@ -151,6 +151,25 @@ export function ForecastScreen() {
         </View>
       </View>
 
+      {/* ---- What the model worked out on its own ---- */}
+      {learned.trained && learned.patterns.length > 0 ? (
+        <View style={styles.learnedCard}>
+          <Text style={styles.learnedTitle}>What this app has noticed about you</Text>
+          {learned.patterns.map((pattern) => (
+            <View key={pattern.id} style={styles.learnedRow}>
+              <Text style={styles.learnedDot}>—</Text>
+              <View style={styles.learnedText}>
+                <Text style={styles.learnedHeading}>{pattern.title}</Text>
+                <Text style={styles.learnedDetail}>{pattern.detail}</Text>
+              </View>
+            </View>
+          ))}
+          <Text style={styles.learnedFoot}>
+            Worked out on this phone from your last {learned.daysTrainedOn} days. Nobody else sees it.
+          </Text>
+        </View>
+      ) : null}
+
       {/* ---- The numbers behind it ---- */}
       <View style={styles.metrics}>
         <MetricCard
@@ -219,6 +238,23 @@ export function ForecastScreen() {
 }
 
 const styles = StyleSheet.create({
+  learnedCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  learnedTitle: {
+    color: colors.text, fontSize: 15, fontWeight: '900', marginBottom: spacing.md,
+  },
+  learnedRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  learnedDot: { color: colors.primary, fontSize: 13, fontWeight: '900', lineHeight: 19 },
+  learnedText: { flex: 1 },
+  learnedHeading: { color: colors.text, fontSize: 13.5, fontWeight: '700' },
+  learnedDetail: { color: colors.textSecondary, fontSize: 12.5, lineHeight: 18, marginTop: 2 },
+  learnedFoot: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 2 },
   predictionCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,

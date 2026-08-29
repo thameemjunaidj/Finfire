@@ -4,6 +4,7 @@ import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEn
 import { buildForecast } from '../engine/forecastEngine';
 import { mergeRecurringPayments } from '../engine/recurringDetection';
 import { predictOutcome } from '../engine/predictionEngine';
+import { trainModel } from '../engine/learningEngine';
 import { explainOnDevice } from '../services/ai';
 import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
 import {
@@ -19,6 +20,7 @@ import {
   FinanceDataset,
   FinancialSummary,
   PersistedFinanceState,
+  LearnedModel,
   PredictionNarrative,
   SimulationInput,
   SimulationResult,
@@ -35,6 +37,8 @@ interface FinanceContextValue extends FinanceDataset {
   forecast: SpendingForecast;
   /** Simulated outcome: how likely the money runs out, and the likely range. */
   prediction: SpendingPrediction;
+  /** What the on-device model learned about this person. */
+  learned: LearnedModel;
   /** That prediction written out in plain language. */
   narrative: PredictionNarrative;
   loaded: boolean;
@@ -105,6 +109,8 @@ export function FinanceProvider({ children }: PropsWithChildren) {
 
   /** The simulation, and the plain-English version of what it found. */
   const prediction = useMemo(() => predictOutcome(analysisDataset), [analysisDataset]);
+  /** The model trained on this phone, kept so the app can show what it learned. */
+  const learned = useMemo(() => trainModel(analysisDataset), [analysisDataset]);
   const narrative = useMemo(
     () => explainOnDevice(prediction, forecast, analysisDataset.profile),
     [prediction, forecast, analysisDataset.profile],
@@ -115,6 +121,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     summary,
     forecast,
     prediction,
+    learned,
     narrative,
     loaded,
     onboardingComplete: state.onboardingComplete,
@@ -144,7 +151,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       await clearFinanceState();
       setState(initialState);
     },
-  }), [analysisDataset, forecast, loaded, narrative, prediction, state, summary]);
+  }), [analysisDataset, forecast, learned, loaded, narrative, prediction, state, summary]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

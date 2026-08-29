@@ -164,9 +164,9 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
         type: 'bill_anomaly',
         severity: increase >= 100 ? 'critical' : 'high',
         title: `${payment.merchant} bill is about to jump`,
-        message: `Due on ${payment.nextPaymentDate}, and ${round(increase)}% higher than last time.`,
+        message: `Due on ${formatDate(payment.nextPaymentDate)}, and ${round(increase)}% higher than last time.`,
         evidence: `${formatCurrency(payment.previousAmount)} last time → ${formatCurrency(payment.currentAmount)} due`,
-        recommendation: `Set ${formatCurrency(payment.currentAmount)} aside before ${payment.nextPaymentDate}, and check the reading if it looks wrong.`,
+        recommendation: `Keep ${formatCurrency(payment.currentAmount)} aside before ${formatDate(payment.nextPaymentDate)}. If the amount looks wrong, check the bill.`,
         impactAmount: difference,
         componentScore: score,
       }));
@@ -195,7 +195,7 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
         title: `${payment.merchant} price increased`,
         message: `This regular payment increased by ${round(increasePercentage)}%.`,
         evidence: `${formatCurrency(payment.previousAmount)} → ${formatCurrency(payment.currentAmount)}`,
-        recommendation: `Check whether you still need this plan before the next payment on ${formatDate(payment.nextPaymentDate, true)}.`,
+        recommendation: `Decide if you still want this before the next payment on ${formatDate(payment.nextPaymentDate)}.`,
         impactAmount: increaseAmount,
         componentScore: score,
       }));

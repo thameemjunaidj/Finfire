@@ -44,6 +44,7 @@ import {
   TransactionCategory,
 } from '../types/finance';
 import { addDays, daysBetween, daysInMonth, parseLocalDate, toIsoDate } from '../utils/dates';
+import { featuresFor, predictDay, trainModel } from './learningEngine';
 
 /** Spending the person chooses day to day — the part that varies and so the
  *  part worth simulating. Rent and bills are known dates and known amounts. */
@@ -143,13 +144,47 @@ function learnDailyPools(transactions: Transaction[], asOf: string): number[][] 
   return pools;
 }
 
+/**
+ * Feeding a model its own output is how a forecast runs away with itself.
+ *
+ * The model learned that spending comes in streaks, which is true — for a few
+ * days. But in simulation each predicted day becomes an input to the next, so
+ * a hot start compounds and eleven days later the app is claiming a certainty
+ * it has no basis for. On the demo account that alone moved the risk from 73%
+ * to 93%.
+ *
+ * So the further ahead we look, the more we pull the "recent days" input back
+ * toward this person's ordinary level. Tomorrow is mostly today; day ten is
+ * mostly just a normal day. That is honest about what a streak actually tells
+ * you, and it is the standard fix for multi-step forecasts.
+ */
+function makeDamper(ordinaryDay: number) {
+  return (recentDays: number[], daysAhead: number): number => {
+    const simulated = recentDays.reduce((a, b) => a + b, 0) / 3;
+    const trustInStreak = 1 / (1 + daysAhead / 3);
+    return simulated * trustInStreak + ordinaryDay * (1 - trustInStreak);
+  };
+}
+
 export function predictOutcome(dataset: FinanceDataset): SpendingPrediction {
   const { profile, transactions, recurringPayments } = dataset;
   const asOf = profile.analysisDate ?? toIsoDate(new Date());
 
+  /**
+   * Train the small model on this person's own days first. It replaces the
+   * plain day-shuffling below: instead of assuming every future Tuesday looks
+   * like a past Tuesday, the model accounts for where in the money cycle the
+   * day sits and how the last few days went.
+   */
+  const model = trainModel(dataset);
+
   const pools = learnDailyPools(transactions, asOf);
   const everyDay = pools.flat();
   const daysObserved = everyDay.length;
+  const ordinaryDay = everyDay.length
+    ? everyDay.reduce((a, b) => a + b, 0) / everyDay.length
+    : 0;
+  const dampedRecentPace = makeDamper(ordinaryDay);
 
   const totalDays = daysInMonth(asOf);
   const dayOfMonth = parseLocalDate(asOf).getDate();
@@ -176,19 +211,55 @@ export function predictOutcome(dataset: FinanceDataset): SpendingPrediction {
   let shortfallRuns = 0;
   const shortfallDayOffsets: number[] = [];
 
+  /** The last income before today — the model needs it to know how far into
+   *  the cycle a day sits. */
+  const pastIncomes = transactions
+    .filter((item) => item.direction === 'credit' && item.date <= asOf)
+    .map((item) => item.date)
+    .sort();
+  const lastIncomeBefore = pastIncomes.length ? pastIncomes[pastIncomes.length - 1] : asOf;
+
   for (let run = 0; run < SIMULATIONS; run += 1) {
     let balance = profile.availableBalance;
     let spent = 0;
     let brokeOnOffset: number | null = null;
+    /** The three most recent days of this simulated future, newest first —
+     *  the model uses them, so a heavy run can carry itself forward. */
+    let recentDays: number[] = [0, 0, 0];
 
     for (let offset = 1; offset <= horizon; offset += 1) {
       const date = addDays(asOf, offset);
       const weekday = parseLocalDate(date).getDay();
 
-      // Draw a real past day of the same weekday. Fall back to any day when
-      // that weekday is thinly observed, rather than inventing a number.
-      const pool = pools[weekday].length >= 3 ? pools[weekday] : everyDay;
-      const variable = pool.length ? pool[Math.floor(random() * pool.length)] : 0;
+      let variable: number;
+
+      if (model.trained && model.residuals.length) {
+        /**
+         * The learned path. The model says what a day like this one usually
+         * costs; we then add a real leftover error from a real past day, so
+         * the spread comes from how wrong the model actually was rather than
+         * from an assumed bell curve.
+         */
+        const lastIncome = date > profile.nextIncomeDate ? profile.nextIncomeDate : lastIncomeBefore;
+        const expected = predictDay(
+          model,
+          featuresFor(
+            date,
+            lastIncome,
+            date > profile.nextIncomeDate ? addDays(profile.nextIncomeDate, 30) : profile.nextIncomeDate,
+            dampedRecentPace(recentDays, offset),
+          ),
+        );
+        const residual = model.residuals[Math.floor(random() * model.residuals.length)];
+        variable = Math.max(0, expected + residual);
+      } else {
+        // Not enough history to have learned anything. Fall back to drawing a
+        // real past day of the same weekday rather than inventing a number.
+        const pool = pools[weekday].length >= 3 ? pools[weekday] : everyDay;
+        variable = pool.length ? pool[Math.floor(random() * pool.length)] : 0;
+      }
+
+      recentDays = [variable, recentDays[0], recentDays[1]];
 
       const fixed = scheduled.get(date) ?? 0;
       const income = date === profile.nextIncomeDate ? profile.monthlyIncome : 0;
@@ -240,8 +311,10 @@ export function predictOutcome(dataset: FinanceDataset): SpendingPrediction {
     monthEndBalance: band(monthEndBalanceRuns),
     shortfallProbability,
     likelyShortfallDate,
-    method:
-      `We compared your past spending with the next ${horizon} days and bills already due. `
-      + 'This is an estimate, so the result may change as new spending is added.',
+    method: model.trained
+      ? `A small model trained on your own ${model.daysTrainedOn} days learned how weekends, `
+        + `the money cycle and recent days change your spending. We then played the next `
+        + `${horizon} days ${SIMULATIONS} times using it.`
+      : `We compared your past spending with the next ${horizon} days and the bills already due.`,
   };
 }

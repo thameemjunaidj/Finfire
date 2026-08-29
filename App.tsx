@@ -7,6 +7,7 @@ import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { SettingsModal } from './src/components/SettingsModal';
 import { FinanceProvider, useFinance } from './src/context/FinanceContext';
 import { AlertsScreen } from './src/screens/AlertsScreen';
+import { AssistantScreen } from './src/screens/AssistantScreen';
 import { ForecastScreen } from './src/screens/ForecastScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
@@ -47,6 +48,7 @@ function FinFireApp() {
         {tab === 'alerts' ? <AlertsScreen /> : null}
         {tab === 'transactions' ? <TransactionsScreen /> : null}
         {tab === 'simulator' ? <SimulatorScreen /> : null}
+        {tab === 'assistant' ? <AssistantScreen /> : null}
         <BottomTabs active={tab} onChange={setTab} alertCount={summary.alerts.length} />
         <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
       </View>

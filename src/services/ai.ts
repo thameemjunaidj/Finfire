@@ -56,10 +56,10 @@ export function isLanguageModelEnabled(): boolean {
 /* ------------------------------------------------------------------ */
 
 function describeChance(probability: number): string {
-  if (probability >= 0.85) return 'almost certainly';
-  if (probability >= 0.6) return 'more likely than not';
-  if (probability >= 0.35) return 'a real chance';
-  if (probability >= 0.15) return 'unlikely but possible';
+  if (probability >= 0.85) return 'almost certain';
+  if (probability >= 0.6) return 'likely';
+  if (probability >= 0.35) return 'possible';
+  if (probability >= 0.15) return 'not very likely';
   return 'very unlikely';
 }
 
@@ -82,21 +82,23 @@ export function explainOnDevice(
   if (prediction.shortfallProbability >= 0.2 && prediction.likelyShortfallDate) {
     return {
       source: 'on-device',
-      headline: `You probably run out around ${formatDate(prediction.likelyShortfallDate)}`,
+      headline: `Your money may run out around ${formatDate(prediction.likelyShortfallDate)}`,
       body:
-        `In ${inTenMonths} months out of 10 like this one, the money runs out before your next income. `
-        + `You have roughly ${formatCurrency(prediction.remainingSpend.p50)} of spending left.\n\n`
-        + `Spending ${formatCurrency(forecast.safeDailyAllowance)} a day instead of ${formatCurrency(forecast.currentDailyPace)} turns it around.`,
+        `If the next few days go like your normal days, you run out of money before your next `
+        + `pocket money. We checked this ${inTenMonths} times out of 10.\n\n`
+        + `You still have about ${formatCurrency(prediction.remainingSpend.p50)} to spend. `
+        + `Spend ${formatCurrency(forecast.safeDailyAllowance)} a day instead of ${formatCurrency(forecast.currentDailyPace)} and the money lasts.`,
     };
   }
 
   return {
     source: 'on-device',
-    headline: 'You should reach your next income comfortably',
+    headline: 'Your money should last until next time',
     body:
-      `Running short is ${describeChance(prediction.shortfallProbability)} — about ${chancePercent} times in 100 months with similar spending. `
-      + `You should finish with about ${formatCurrency(prediction.monthEndBalance.p50)}.\n\n`
-      + `${profile.name}, ${formatCurrency(forecast.safeDailyAllowance)} a day keeps it that way.`,
+      `Running out is ${describeChance(prediction.shortfallProbability)}. It happened only `
+      + `${chancePercent} times out of 100 when we checked.\n\n`
+      + `${profile.name}, you should be left with about ${formatCurrency(prediction.monthEndBalance.p50)}. `
+      + `Keep your spending near ${formatCurrency(forecast.safeDailyAllowance)} a day.`,
   };
 }
 

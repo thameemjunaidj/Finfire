@@ -3,7 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
 
-export type AppTab = 'home' | 'forecast' | 'alerts' | 'transactions' | 'simulator';
+export type AppTab = 'home' | 'forecast' | 'alerts' | 'transactions' | 'simulator' | 'assistant';
 
 const tabs: Array<{ id: AppTab; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { id: 'home', label: 'Home', icon: 'home' },
@@ -11,6 +11,7 @@ const tabs: Array<{ id: AppTab; label: string; icon: keyof typeof Feather.glyphM
   { id: 'alerts', label: 'Warnings', icon: 'alert-triangle' },
   { id: 'transactions', label: 'Spending', icon: 'list' },
   { id: 'simulator', label: 'Try It', icon: 'sliders' },
+  { id: 'assistant', label: 'Ask', icon: 'message-circle' },
 ];
 
 export function BottomTabs({ active, onChange, alertCount }: { active: AppTab; onChange: (tab: AppTab) => void; alertCount: number }) {
@@ -47,7 +48,7 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
   iconWrap: { width: 36, height: 30, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
   activeIcon: { backgroundColor: colors.primarySoft },
-  label: { color: colors.textMuted, fontSize: 9.5, fontWeight: '800' },
+  label: { color: colors.textMuted, fontSize: 8.5, fontWeight: '800' },
   activeLabel: { color: colors.primary },
   badge: { position: 'absolute', top: -3, right: -3, width: 16, height: 16, borderRadius: 8, backgroundColor: colors.critical, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.surface },
   badgeText: { color: colors.white, fontSize: 8, fontWeight: '900' },
