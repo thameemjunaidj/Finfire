@@ -1,11 +1,8 @@
 import { demoDataset } from '../src/data/demoData';
 import { calculateFinancialSummary, getRiskBand, simulatePurchase } from '../src/engine/financeEngine';
 import { buildForecast } from '../src/engine/forecastEngine';
-<<<<<<< HEAD
 import { predictOutcome } from '../src/engine/predictionEngine';
 import { explainOnDevice } from '../src/services/ai';
-=======
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
 import { parseTransactionsCsv } from '../src/services/csv';
 import {
   addTransactionToState,
@@ -18,6 +15,7 @@ import {
   sanitizePersistedState,
 } from '../src/services/financeState';
 import { FinanceDataset, PersistedFinanceState, Transaction } from '../src/types/finance';
+import { plainLabel } from '../src/utils/format';
 import { isValidIsoDate, parseNonNegativeMoney, parsePositiveMoney } from '../src/utils/validation';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -64,7 +62,41 @@ assert(simulation.after.riskScore >= simulation.before.riskScore, 'risky purchas
 assert(simulation.after.runwayDays < simulation.before.runwayDays, 'a ₹600 purchase reduces runway');
 assert(demoDataset.transactions.every((item) => item.source !== 'simulation'), 'simulation never mutates real data');
 
-<<<<<<< HEAD
+const safeDataset: FinanceDataset = {
+  profile: {
+    id: 'safe',
+    name: 'Safe User',
+    monthlyIncome: 50_000,
+    availableBalance: 50_000,
+    nextIncomeDate: '2026-09-01',
+    essentialMonthlyExpenses: 0,
+    analysisDate: '2026-08-18',
+  },
+  transactions: [],
+  recurringPayments: [],
+};
+const safeSummary = calculateFinancialSummary(safeDataset);
+assert(safeSummary.riskScore === 0, 'a genuinely safe empty dataset has zero risk');
+assert(safeSummary.alerts.length === 0, 'a safe dataset has no false warnings');
+assert(safeSummary.riskExplanation === 'Nothing needs your attention right now.', 'safe explanation is clear and reassuring');
+assert(plainLabel('debit') === 'Money out', 'shows debit in plain language');
+assert(plainLabel('critical') === 'Urgent', 'shows critical severity in plain language');
+
+const noBalanceSummary = calculateFinancialSummary({
+  ...safeDataset,
+  profile: { ...safeDataset.profile, availableBalance: 0 },
+});
+assert(noBalanceSummary.alerts.some((alert) => alert.type === 'low_runway'), 'zero balance creates a runway warning');
+assert(!noBalanceSummary.alerts.some((alert) => alert.type === 'payment_pileup'), 'zero balance without payments does not create a false payment warning');
+
+const futureSimulation = simulatePurchase(safeDataset, {
+  description: 'Future purchase',
+  amount: 5000,
+  category: 'shopping',
+  proposedDate: '2026-08-20',
+});
+assert(futureSimulation.after.currentMonthSpending === 5000, 'a proposed future-date purchase is included in its simulation');
+
 /* --- The prediction model ----------------------------------------- */
 
 const prediction = predictOutcome(demoDataset);
@@ -95,40 +127,6 @@ assert(
 const narrative = explainOnDevice(prediction, buildForecast(demoDataset), demoDataset.profile);
 assert(narrative.source === 'on-device', 'falls back to on-device wording with no API key');
 assert(narrative.body.length > 80, 'narrative explains itself in full sentences');
-=======
-const safeDataset: FinanceDataset = {
-  profile: {
-    id: 'safe',
-    name: 'Safe User',
-    monthlyIncome: 50_000,
-    availableBalance: 50_000,
-    nextIncomeDate: '2026-09-01',
-    essentialMonthlyExpenses: 0,
-    analysisDate: '2026-08-18',
-  },
-  transactions: [],
-  recurringPayments: [],
-};
-const safeSummary = calculateFinancialSummary(safeDataset);
-assert(safeSummary.riskScore === 0, 'a genuinely safe empty dataset has zero risk');
-assert(safeSummary.alerts.length === 0, 'a safe dataset has no false warnings');
-assert(safeSummary.riskExplanation === 'No material risks are currently detected.', 'safe explanation is not misleading');
-
-const noBalanceSummary = calculateFinancialSummary({
-  ...safeDataset,
-  profile: { ...safeDataset.profile, availableBalance: 0 },
-});
-assert(noBalanceSummary.alerts.some((alert) => alert.type === 'low_runway'), 'zero balance creates a runway warning');
-assert(!noBalanceSummary.alerts.some((alert) => alert.type === 'payment_pileup'), 'zero balance without payments does not create a false payment warning');
-
-const futureSimulation = simulatePurchase(safeDataset, {
-  description: 'Future purchase',
-  amount: 5000,
-  category: 'shopping',
-  proposedDate: '2026-08-20',
-});
-assert(futureSimulation.after.currentMonthSpending === 5000, 'a proposed future-date purchase is included in its simulation');
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
 
 assert(getRiskBand(0) === 'Safe', 'safe band lower bound');
 assert(getRiskBand(30) === 'Caution', 'caution band lower bound');
@@ -149,9 +147,6 @@ assert(aliases.transactions[0].category === 'income', 'salary category maps to i
 assert(aliases.transactions[1].direction === 'debit', 'negative bank amount defaults to debit');
 assert(aliases.transactions[1].category === 'food', 'groceries category maps to food');
 
-<<<<<<< HEAD
-console.log(`Fin Extinguisher tests passed: ${summary.alerts.length} alerts, risk ${summary.riskScore}/100, runway ${summary.runwayDays} days, ${Math.round(prediction.shortfallProbability * 100)}% shortfall risk.`);
-=======
 const invalidHeaders = parseTransactionsCsv('merchant,amount\nShop,500');
 assert(invalidHeaders.transactions.length === 0 && invalidHeaders.errors.length === 1, 'rejects missing CSV headers');
 const invalidRows = parseTransactionsCsv('date,merchant,amount,direction\n2026-02-30,Shop,500,debit\n2026-08-18,Cafe,250,sideways');
@@ -222,5 +217,4 @@ assert(parsePositiveMoney('₹1,250.50') === 1250.5, 'parses formatted positive 
 assert(parsePositiveMoney('0') === null, 'rejects a zero positive-money input');
 assert(parseNonNegativeMoney('0') === 0, 'accepts zero for non-negative money');
 
-console.log(`Fin Extinguisher tests passed: ${summary.alerts.length} demo alerts, risk ${summary.riskScore}/100, runway ${summary.runwayDays} days.`);
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
+console.log(`Fin Extinguisher tests passed: ${summary.alerts.length} alerts, risk ${summary.riskScore}/100, runway ${summary.runwayDays} days, ${Math.round(prediction.shortfallProbability * 100)}% shortfall risk.`);

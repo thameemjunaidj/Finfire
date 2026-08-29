@@ -45,10 +45,10 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
   };
 
   const testNotification = async () => {
-    const shown = await scheduleRiskNotification(`🔥 ${APP_NAME} is ready`, 'Critical financial warnings will appear here when enabled.');
+    const shown = await scheduleRiskNotification(`🔥 ${APP_NAME} is ready`, 'Urgent money warnings will appear here when enabled.');
     showMessage(
       shown ? 'Notification sent' : 'Unavailable here',
-      shown ? 'Check your notification centre.' : 'Local notifications require an Android or iPhone build with permission enabled.',
+      shown ? 'Check your notifications.' : 'Notifications need permission and work on Android or iPhone.',
     );
   };
 
@@ -64,7 +64,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
       || essentialMonthlyExpenses === null
       || !isDateOnOrAfter(nextIncomeDate, analysisDate)
     ) {
-      showMessage('Check your profile', `Use valid amounts and an income date on or after ${analysisDate}.`);
+      showMessage('Check your details', `Enter valid amounts and an income date on or after ${analysisDate}.`);
       return;
     }
     updateProfile({
@@ -76,12 +76,12 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
       essentialMonthlyExpenses,
     });
     setView('main');
-    showMessage('Profile updated', 'Your risk score and warnings have been recalculated.');
+    showMessage('Details updated', 'Your money score and warnings are now up to date.');
   };
 
   const restoreDemo = () => confirmAction({
-    title: 'Restore demo data?',
-    message: 'This replaces the current profile, transactions, and scheduled payments with the original Arjun demo.',
+    title: 'Restore the sample account?',
+    message: 'This replaces your current details, spending and upcoming bills with the original Arjun sample.',
     confirmLabel: 'Restore',
     destructive: true,
     onConfirm: () => {
@@ -91,8 +91,8 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
   });
 
   const erase = () => confirmAction({
-    title: 'Erase local data?',
-    message: 'This removes the profile, imported transactions, and manual entries from this device.',
+    title: 'Erase your data?',
+    message: 'This removes your details and spending entries from this device.',
     confirmLabel: 'Erase',
     destructive: true,
     onConfirm: () => void eraseLocalData().then(close),
@@ -110,8 +110,8 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
                   <Text style={styles.backText}>Settings</Text>
                 </Pressable>
               ) : null}
-              <Text style={styles.title}>{view === 'profile' ? 'Edit financial profile' : 'Settings & privacy'}</Text>
-              <Text style={styles.subtitle}>{view === 'profile' ? `Dashboard date: ${formatDate(profile.analysisDate ?? toIsoDate(new Date()), true)}` : 'Your prototype data stays on this device.'}</Text>
+              <Text style={styles.title}>{view === 'profile' ? 'Edit your money details' : 'Settings & privacy'}</Text>
+              <Text style={styles.subtitle}>{view === 'profile' ? `Information updated to ${formatDate(profile.analysisDate ?? toIsoDate(new Date()), true)}` : 'Your information stays on this device.'}</Text>
             </View>
             <Pressable accessibilityLabel="Close settings" onPress={close} style={styles.close}>
               <Feather name="x" size={20} color={colors.text} />
@@ -125,18 +125,18 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
                   <View style={styles.profileIcon}><Feather name="user" size={20} color={colors.primary} /></View>
                   <View style={styles.rowText}>
                     <Text style={styles.rowTitle}>{profile.name}</Text>
-                    <Text style={styles.rowHelper}>Edit balance, income, next income date, and essential spending.</Text>
+                    <Text style={styles.rowHelper}>Edit your balance, income, next income date and essential bills.</Text>
                   </View>
                   <Feather name="chevron-right" size={18} color={colors.textMuted} />
                 </Pressable>
 
                 <View style={styles.row}>
                   <View style={styles.rowText}>
-                    <Text style={styles.rowTitle}>Critical notifications</Text>
-                    <Text style={styles.rowHelper}>Allow local warnings after risky simulations.</Text>
+                    <Text style={styles.rowTitle}>Warnings on my phone</Text>
+                    <Text style={styles.rowHelper}>Show a notification when a tested purchase may cause a problem.</Text>
                   </View>
                   <Switch
-                    accessibilityLabel="Critical notifications"
+                    accessibilityLabel="Warnings on my phone"
                     value={notificationsEnabled}
                     onValueChange={setNotificationsEnabled}
                     trackColor={{ false: colors.border, true: colors.primary }}
@@ -146,28 +146,28 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
                 <View style={styles.privacyCard}>
                   <Feather name="shield" size={22} color={colors.safe} />
                   <View style={styles.rowText}>
-                    <Text style={styles.rowTitle}>Offline-first by design</Text>
-                    <Text style={styles.rowHelper}>{APP_NAME} never asks for bank passwords, PINs, CVVs, or UPI PINs. Imported CSV data is stored locally.</Text>
+                    <Text style={styles.rowTitle}>Private on this device</Text>
+                    <Text style={styles.rowHelper}>{APP_NAME} never asks for bank passwords, PINs, CVVs or UPI PINs. Imported files stay on this device.</Text>
                   </View>
                 </View>
 
                 <FinButton label="Test notification" icon="bell" variant="secondary" disabled={!notificationsEnabled} onPress={() => void testNotification()} />
-                <FinButton label="Restore demo data" icon="refresh-cw" variant="ghost" onPress={restoreDemo} style={styles.action} />
-                <FinButton label="Erase local data" icon="trash-2" variant="danger" onPress={erase} style={styles.action} />
-                <Text style={styles.version}>{APP_NAME} 1.1 · Demo, manual, and user-imported data only</Text>
+                <FinButton label="Restore sample account" icon="refresh-cw" variant="ghost" onPress={restoreDemo} style={styles.action} />
+                <FinButton label="Erase my data" icon="trash-2" variant="danger" onPress={erase} style={styles.action} />
+                <Text style={styles.version}>{APP_NAME} 1.1 · Sample, manually added and imported information only</Text>
               </>
             ) : (
               <View>
                 <FormField label="Your name" value={name} onChangeText={setName} placeholder="e.g. Thameem" />
                 <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="48000" />
-                <FormField label="Available balance (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
+                <FormField label="Money currently available (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
                 <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder="2026-09-01" />
-                <FormField label="Essential monthly expenses (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
+                <FormField label="Essential bills each month (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
                 <View style={styles.recalculationNote}>
                   <Feather name="refresh-cw" size={16} color={colors.primary} />
-                  <Text style={styles.noteText}>Saving immediately recalculates all five detectors. Existing transactions are preserved.</Text>
+                  <Text style={styles.noteText}>Saving updates every warning. Your existing spending entries stay unchanged.</Text>
                 </View>
-                <FinButton label="Save profile" icon="check" onPress={saveProfile} style={styles.save} />
+                <FinButton label="Save changes" icon="check" onPress={saveProfile} style={styles.save} />
               </View>
             )}
           </ScrollView>

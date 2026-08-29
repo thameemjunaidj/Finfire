@@ -98,10 +98,10 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
       id: 'spending-surge',
       type: 'spending_surge',
       severity: severityFromPercentage(surgePercentage),
-      title: 'Spending is accelerating',
-      message: `At this pace, you may spend ${round(surgePercentage)}% more than your recent monthly average.`,
-      evidence: `${formatCurrency(projectedMonthlySpending)} projected vs ${formatCurrency(normalMonthlySpending)} usual`,
-      recommendation: `Keep discretionary spending below ${formatCurrency(safeRemaining / remainingDays)} per day for the rest of the month.`,
+      title: 'You are spending faster than usual',
+      message: `If this continues, you could spend ${round(surgePercentage)}% more than usual this month.`,
+      evidence: `Likely total ${formatCurrency(projectedMonthlySpending)} · Usual total ${formatCurrency(normalMonthlySpending)}`,
+      recommendation: `Try to keep optional spending under ${formatCurrency(safeRemaining / remainingDays)} a day for the rest of the month.`,
       impactAmount: Math.max(0, projectedMonthlySpending - normalMonthlySpending),
       componentScore: spendingSurgeScore,
     }));
@@ -132,9 +132,9 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
         type: 'bill_anomaly',
         severity: increase >= 60 ? 'critical' : increase >= 45 ? 'high' : 'watch',
         title: `Unusual ${currentBill.merchant} bill`,
-        message: `This charge is ${round(increase)}% above its recent average.`,
-        evidence: `${formatCurrency(currentBill.amount)} now vs ${formatCurrency(average)} average`,
-        recommendation: 'Verify usage and compare this bill with the previous three statements before paying.',
+        message: `This bill is ${round(increase)}% higher than usual.`,
+        evidence: `${formatCurrency(currentBill.amount)} now · Usually ${formatCurrency(average)}`,
+        recommendation: 'Check the bill details and compare them with your last three bills before paying.',
         impactAmount: difference,
         componentScore: score,
       }));
@@ -193,9 +193,9 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
         type: 'subscription_increase',
         severity: increasePercentage >= 75 ? 'critical' : increasePercentage >= 30 ? 'high' : 'watch',
         title: `${payment.merchant} price increased`,
-        message: `Your recurring charge increased by ${round(increasePercentage)}%.`,
+        message: `This regular payment increased by ${round(increasePercentage)}%.`,
         evidence: `${formatCurrency(payment.previousAmount)} → ${formatCurrency(payment.currentAmount)}`,
-        recommendation: `Review, downgrade, or cancel the plan before ${formatDate(payment.nextPaymentDate, true)}.`,
+        recommendation: `Check whether you still need this plan before the next payment on ${formatDate(payment.nextPaymentDate, true)}.`,
         impactAmount: increaseAmount,
         componentScore: score,
       }));
@@ -203,7 +203,6 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   });
 
   const sevenDaysLater = addDays(asOf, 7);
-<<<<<<< HEAD
   /**
    * "Payments piling up" is about money that leaves WITHOUT a decision. A
    * weekly grocery run or a monthly Myntra habit is predictable, but nobody
@@ -216,12 +215,7 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   const AUTOMATIC_CATEGORIES = ['rent', 'utilities', 'subscription', 'health'];
   const upcoming = recurringPayments
     .filter((payment) => !payment.id.startsWith('detected-') || AUTOMATIC_CATEGORIES.includes(payment.category))
-    .filter((payment) => payment.nextPaymentDate > asOf && payment.nextPaymentDate <= sevenDaysLater);
-=======
-  const upcoming = recurringPayments.filter(
-    (payment) => payment.nextPaymentDate >= asOf && payment.nextPaymentDate <= sevenDaysLater,
-  );
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
+    .filter((payment) => payment.nextPaymentDate >= asOf && payment.nextPaymentDate <= sevenDaysLater);
   const upcomingPaymentsTotal = upcoming.reduce((sum, payment) => sum + payment.currentAmount, 0);
   const disposableBalance = Math.max(0, profile.availableBalance);
   const upcomingRatio = upcomingPaymentsTotal === 0 ? 0 : disposableBalance > 0 ? upcomingPaymentsTotal / disposableBalance : 1;
@@ -234,10 +228,10 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
       id: 'payment-pileup',
       type: 'payment_pileup',
       severity: upcomingRatio >= 0.5 ? 'critical' : upcoming.length >= 3 ? 'high' : 'watch',
-      title: 'Payments are piling up',
-      message: `${upcoming.length} automatic payments are due within the next seven days.`,
-      evidence: `${formatCurrency(upcomingPaymentsTotal)} due — ${round(upcomingRatio * 100)}% of your available balance`,
-      recommendation: `Reserve ${formatCurrency(upcomingPaymentsTotal)} now and pause non-essential purchases until they clear.`,
+      title: 'Several payments are due soon',
+      message: `${upcoming.length} payments are due in the next seven days.`,
+      evidence: `${formatCurrency(upcomingPaymentsTotal)} due · ${round(upcomingRatio * 100)}% of the money you have left`,
+      recommendation: `Set aside ${formatCurrency(upcomingPaymentsTotal)} now and avoid optional purchases until these payments are complete.`,
       impactAmount: upcomingPaymentsTotal,
       componentScore: paymentPressureScore,
     }));
@@ -270,10 +264,10 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
       id: 'low-runway',
       type: 'low_runway',
       severity,
-      title: 'Your money runway is short',
-      message: `At your recent discretionary pace, your protected balance may last about ${round(runwayDays)} days.`,
-      evidence: `${formatCurrency(protectedBalance)} protected balance ÷ ${formatCurrency(recentDailyDiscretionarySpend)}/day`,
-      recommendation: `Cap discretionary spending at ${formatCurrency(safeDailyCap)} per day until your next income.`,
+      title: 'Your money may not last long',
+      message: `After setting aside essential bills, your remaining money may last about ${round(runwayDays)} days.`,
+      evidence: `${formatCurrency(protectedBalance)} left after essential bills · Recently spending ${formatCurrency(recentDailyDiscretionarySpend)} a day`,
+      recommendation: `Try to spend no more than ${formatCurrency(safeDailyCap)} a day until your next income.`,
       impactAmount: protectedBalance,
       componentScore: runwayScore,
     }));
@@ -295,10 +289,10 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   ));
   const riskBand = getRiskBand(riskScore);
   const contributorLabels: Array<[keyof RiskComponents, string]> = [
-    ['spendingSurge', 'accelerated spending'],
-    ['runway', 'a short money runway'],
+    ['spendingSurge', 'spending faster than usual'],
+    ['runway', 'money that may run out soon'],
     ['billAnomaly', 'an unusual bill'],
-    ['paymentPressure', 'payments due this week'],
+    ['paymentPressure', 'several payments due soon'],
     ['subscriptionIncrease', 'a subscription price increase'],
   ];
   const topContributors = contributorLabels
@@ -307,8 +301,8 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
     .slice(0, 2)
     .map(([, label]) => label);
   const riskExplanation = topContributors.length
-    ? `Mainly driven by ${topContributors.join(' and ')}.`
-    : 'No material risks are currently detected.';
+    ? `The biggest concerns are ${topContributors.join(' and ')}.`
+    : 'Nothing needs your attention right now.';
 
   const sortedAlerts = alerts.sort((a, b) => {
     const severityDifference = severityWeight[b.severity] - severityWeight[a.severity];

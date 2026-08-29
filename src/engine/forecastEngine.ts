@@ -287,7 +287,7 @@ function buildSavingsActions(
         id: `boost-${top.forecast.category}`,
         category: top.forecast.category,
         title: `Save ${formatCurrency(saving)} more`,
-        detail: `You are on track already. Trimming ${titleCase(top.forecast.category).toLowerCase()} by a fifth for the rest of the month would put another ${formatCurrency(saving)} aside without touching anything essential.`,
+        detail: `You are already on track. Spending about 20% less on ${titleCase(top.forecast.category).toLowerCase()} for the rest of the month could save another ${formatCurrency(saving)}.`,
         monthlySaving: round(saving),
         dailyReduction: round(saving / remainingForMath),
       });
@@ -315,8 +315,8 @@ function buildSavingsActions(
       category: candidate.forecast.category,
       title: `Cut ${label} by ${formatCurrency(saving)}`,
       detail: aboveNormal
-        ? `${titleCase(label)} is heading for ${formatCurrency(candidate.forecast.projectedMonthEnd)} against your usual ${formatCurrency(candidate.forecast.baselineMonth)}. Getting back to normal is about ${formatCurrency(perDay)} a day less for the ${daysRemaining} days left.`
-        : `${titleCase(label)} is running at its usual level, but it is the largest thing left that you control. About ${formatCurrency(perDay)} a day less for the ${daysRemaining} days left gets you there.`,
+        ? `${titleCase(label)} may reach ${formatCurrency(candidate.forecast.projectedMonthEnd)}, compared with your usual ${formatCurrency(candidate.forecast.baselineMonth)}. Spend about ${formatCurrency(perDay)} less each day for the next ${daysRemaining} days.`
+        : `${titleCase(label)} looks normal, but it is your largest optional expense. Spend about ${formatCurrency(perDay)} less each day for the next ${daysRemaining} days.`,
       monthlySaving: round(saving),
       dailyReduction: round(perDay),
     });
@@ -329,8 +329,8 @@ function buildSavingsActions(
     actions.push({
       id: 'gap-remains',
       category: 'other',
-      title: `${formatCurrency(stillNeeded)} still uncovered`,
-      detail: `Even after those cuts, ${formatCurrency(stillNeeded)} of the target cannot come out of day-to-day spending this month. The realistic options are a smaller saving this month, or cancelling something recurring.`,
+      title: `${formatCurrency(stillNeeded)} still needed`,
+      detail: `These changes will not fully reach your goal. You may need a smaller savings goal this month or cancel a regular payment.`,
       monthlySaving: 0,
       dailyReduction: 0,
     });

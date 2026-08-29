@@ -241,7 +241,7 @@ export function predictOutcome(dataset: FinanceDataset): SpendingPrediction {
     shortfallProbability,
     likelyShortfallDate,
     method:
-      'Learned this account\'s daily spending spread per weekday, then simulated '
-      + `the next ${horizon} days ${SIMULATIONS} times, drawing each day from real past days.`,
+      `We compared your past spending with the next ${horizon} days and bills already due. `
+      + 'This is an estimate, so the result may change as new spending is added.',
   };
 }

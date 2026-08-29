@@ -118,7 +118,6 @@ export interface PersistedFinanceState extends FinanceDataset {
   notificationsEnabled: boolean;
 }
 
-<<<<<<< HEAD
 /* ------------------------------------------------------------------ */
 /* Prediction — a range and a likelihood, not a single number          */
 /* ------------------------------------------------------------------ */
@@ -166,8 +165,6 @@ export interface PredictionNarrative {
 /* ------------------------------------------------------------------ */
 
 /** How one spending category is trending, and where it lands if nothing changes. */
-=======
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
 export interface CategoryForecast {
   category: TransactionCategory;
   lastWeek: number;

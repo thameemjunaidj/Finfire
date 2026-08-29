@@ -43,15 +43,15 @@ export function SimulatorScreen() {
     if (!result) return;
     const shown = await scheduleRiskNotification(
       `🔥 ${APP_NAME} purchase warning`,
-      `This ${formatCurrency(result.input.amount)} purchase could change your runway from ${result.before.runwayDays} to ${result.after.runwayDays} days.`,
+      `This ${formatCurrency(result.input.amount)} purchase could reduce how long your money lasts from ${result.before.runwayDays} to ${result.after.runwayDays} days.`,
     );
     showMessage(shown ? 'Warning sent' : 'Use your phone to test', shown ? 'The local notification is ready.' : 'Browser preview cannot display native notifications.');
   };
   return (
-    <Screen title="What if?" subtitle="Preview a purchase without changing your real transaction data.">
+    <Screen title="Try a purchase" subtitle="See what may happen before you spend the money.">
       <View style={styles.formCard}>
-        <View style={styles.formHeader}><View style={styles.formIcon}><Feather name="sliders" size={20} color={colors.primary} /></View><View><Text style={styles.formTitle}>Purchase impact</Text><Text style={styles.formHelper}>All five detectors rerun instantly.</Text></View></View>
-        <FormField label="Purchase description" value={description} onChangeText={setDescription} placeholder="e.g. New phone" />
+        <View style={styles.formHeader}><View style={styles.formIcon}><Feather name="sliders" size={20} color={colors.primary} /></View><View><Text style={styles.formTitle}>Check a purchase</Text><Text style={styles.formHelper}>We will update your money score and days left.</Text></View></View>
+        <FormField label="What do you want to buy?" value={description} onChangeText={setDescription} placeholder="e.g. New phone" />
         <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="5000" />
         <View style={styles.quickRow}>{quickAmounts.map((value) => (
           <Pressable
@@ -64,39 +64,39 @@ export function SimulatorScreen() {
             <Text style={[styles.quickAmountText, amount === value && styles.quickActiveText]}>{formatCurrency(Number(value))}</Text>
           </Pressable>
         ))}</View>
-        <Text style={styles.label}>Category</Text>
+        <Text style={styles.label}>What type of purchase is it?</Text>
         <ChoiceChips values={simulatorCategories} selected={category} onSelect={setCategory} />
-        <View style={styles.dateField}><FormField label="Proposed date (YYYY-MM-DD)" value={date} onChangeText={setDate} /></View>
+        <View style={styles.dateField}><FormField label="When would you buy it? (YYYY-MM-DD)" value={date} onChangeText={setDate} /></View>
         <Text style={styles.dateHelper}>Choose a date from {analysisDate} through {profile.nextIncomeDate}.</Text>
-        <FinButton label="Run safety check" icon="activity" disabled={!canSimulate} onPress={simulate} />
+        <FinButton label="Check this purchase" icon="activity" disabled={!canSimulate} onPress={simulate} />
       </View>
       {result ? (
         <View style={styles.resultWrap}>
           <View style={[styles.verdict, { borderColor: riskColor(result.verdict), backgroundColor: `${riskColor(result.verdict)}16` }]}>
-            <View><Text style={styles.verdictEyebrow}>{`${APP_NAME.toUpperCase()} VERDICT`}</Text><Text style={[styles.verdictValue, { color: riskColor(result.verdict) }]}>{result.verdict}</Text></View>
+            <View><Text style={styles.verdictEyebrow}>RESULT</Text><Text style={[styles.verdictValue, { color: riskColor(result.verdict) }]}>{result.verdict}</Text></View>
             <Feather name={result.riskChange > 0 ? 'alert-triangle' : 'check-circle'} size={28} color={riskColor(result.verdict)} />
           </View>
           <View style={styles.comparison}>
-            <Comparison label="Risk score" before={`${result.before.riskScore}/100`} after={`${result.after.riskScore}/100`} change={result.riskChange} />
-            <Comparison label="Money runway" before={`${result.before.runwayDays} days`} after={`${result.after.runwayDays} days`} change={result.runwayChange} />
-            <Comparison label="Projected spend" before={formatCurrency(result.before.projectedMonthlySpending)} after={formatCurrency(result.after.projectedMonthlySpending)} change={result.after.projectedMonthlySpending - result.before.projectedMonthlySpending} />
+            <Comparison label="Money score" before={`${result.before.riskScore}/100`} after={`${result.after.riskScore}/100`} change={result.riskChange} />
+            <Comparison label="How long money may last" before={`${result.before.runwayDays} days`} after={`${result.after.runwayDays} days`} change={result.runwayChange} />
+            <Comparison label="Likely month total" before={formatCurrency(result.before.projectedMonthlySpending)} after={formatCurrency(result.after.projectedMonthlySpending)} change={result.after.projectedMonthlySpending - result.before.projectedMonthlySpending} />
           </View>
           <View style={styles.advice}>
             <Feather name="shield" size={20} color={colors.safe} />
-            <Text style={styles.adviceText}>{result.riskChange > 0 ? `Waiting or reducing this purchase by ${formatCurrency(Math.min(result.input.amount, Math.max(1000, result.input.amount / 2)))} would protect more of your runway.` : 'This purchase does not materially increase the risks currently detected.'}</Text>
+            <Text style={styles.adviceText}>{result.riskChange > 0 ? `You may be safer if you wait or spend ${formatCurrency(Math.min(result.input.amount, Math.max(1000, result.input.amount / 2)))} less.` : 'This purchase does not make your current money situation noticeably worse.'}</Text>
           </View>
           {notificationsEnabled && result.riskChange > 0 ? <FinButton label="Send warning to my phone" icon="bell" variant="secondary" onPress={() => void notify()} style={styles.notifyButton} /> : null}
-          <Text style={styles.nonMutation}>Simulation only — your balance and transactions were not changed.</Text>
+          <Text style={styles.nonMutation}>This is only a test. Nothing was added to your spending or balance.</Text>
         </View>
       ) : (
-        <View style={styles.emptyResult}><Feather name="eye" size={26} color={colors.textMuted} /><Text style={styles.emptyTitle}>Your result will appear here</Text><Text style={styles.emptyText}>Try the demo ₹5,000 purchase to see {APP_NAME} prevent damage rather than report it later.</Text></View>
+        <View style={styles.emptyResult}><Feather name="eye" size={26} color={colors.textMuted} /><Text style={styles.emptyTitle}>Your result will appear here</Text><Text style={styles.emptyText}>Try the sample ₹5,000 purchase to see how buying it could affect your month.</Text></View>
       )}
     </Screen>
   );
 }
 
 function Comparison({ label, before, after, change }: { label: string; before: string; after: string; change: number }) {
-  const adverse = label === 'Money runway' ? change < 0 : change > 0;
+  const adverse = label === 'How long money may last' ? change < 0 : change > 0;
   return (
     <View style={styles.comparisonRow}>
       <Text style={styles.comparisonLabel}>{label}</Text>

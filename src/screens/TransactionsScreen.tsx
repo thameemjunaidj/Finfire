@@ -49,7 +49,7 @@ export function TransactionsScreen() {
       });
       if (result.canceled || !result.assets?.[0]) return;
       if (result.assets[0].size && result.assets[0].size > 2_000_000) {
-        showMessage('CSV is too large', 'Choose a file smaller than 2 MB (up to 5,000 data rows).');
+        showMessage('File is too large', 'Choose a CSV file smaller than 2 MB.');
         return;
       }
       const content = result.assets[0].file
@@ -57,18 +57,18 @@ export function TransactionsScreen() {
         : await new File(result.assets[0].uri).text();
       const parsed = parseTransactionsCsv(content);
       if (!parsed.transactions.length) {
-        showMessage('Nothing imported', parsed.errors.join('\n') || 'No valid transactions were found.');
+        showMessage('Nothing was added', parsed.errors.join('\n') || 'We could not find any usable spending entries.');
         return;
       }
       const imported = importTransactions(parsed.transactions);
       const details = [
-        `${imported.added} transaction${imported.added === 1 ? '' : 's'} added`,
+        `${imported.added} entr${imported.added === 1 ? 'y' : 'ies'} added`,
         imported.skippedDuplicates ? `${imported.skippedDuplicates} duplicate${imported.skippedDuplicates === 1 ? '' : 's'} skipped` : '',
         parsed.errors.length ? `${parsed.errors.length} invalid row${parsed.errors.length === 1 ? '' : 's'} skipped` : '',
       ].filter(Boolean).join(' · ');
-      showMessage(imported.added ? 'Import complete' : 'Already imported', details);
+      showMessage(imported.added ? 'Spending added' : 'Already added', details);
     } catch {
-      showMessage('Could not import CSV', 'Use columns: date, merchant, amount, direction, category, essential.');
+      showMessage('Could not read this file', 'Use a CSV file with date, merchant and amount columns. Direction, category and essential are optional.');
     }
   };
 
@@ -77,8 +77,8 @@ export function TransactionsScreen() {
     const analysisDate = profile.analysisDate ?? toIsoDate(new Date());
     if (!merchant.trim() || numericAmount === null || !isValidIsoDate(date) || date > analysisDate) {
       showMessage(
-        'Check the transaction',
-        `Enter a merchant, positive amount, and a valid date no later than the dashboard date (${analysisDate}).`,
+        'Check the details',
+        `Enter a name, an amount above zero, and a valid date no later than ${analysisDate}.`,
       );
       return;
     }
@@ -106,10 +106,10 @@ export function TransactionsScreen() {
   };
 
   const remove = (transaction: Transaction) => confirmAction({
-    title: 'Remove transaction?',
+    title: 'Remove this entry?',
     message: transaction.source === 'manual'
-      ? `${transaction.merchant} will be removed and its balance change will be reversed.`
-      : `${transaction.merchant} will be removed from this imported dataset.`,
+      ? `${transaction.merchant} will be removed and your balance will be changed back.`
+      : `${transaction.merchant} will be removed from your imported spending.`,
     confirmLabel: 'Remove',
     destructive: true,
     onConfirm: () => deleteTransaction(transaction.id),
@@ -117,25 +117,25 @@ export function TransactionsScreen() {
 
   return (
     <>
-      <Screen title="Transactions" subtitle={`${transactions.length} local transactions · Search the evidence behind every warning.`}>
+      <Screen title="Spending" subtitle={`${transactions.length} entries saved on this device`}>
         <View style={styles.actions}>
-          <FinButton label="Add" icon="plus" onPress={openAdd} style={styles.actionButton} />
-          <FinButton label="Import CSV" icon="upload" variant="secondary" onPress={() => void importCsv()} style={styles.actionButton} />
-          <FinButton label="Scheduled" icon="calendar" variant="secondary" onPress={() => setScheduledVisible(true)} style={styles.actionButton} />
+          <FinButton label="Add money" icon="plus" onPress={openAdd} style={styles.actionButton} />
+          <FinButton label="Import file" icon="upload" variant="secondary" onPress={() => void importCsv()} style={styles.actionButton} />
+          <FinButton label="Upcoming bills" icon="calendar" variant="secondary" onPress={() => setScheduledVisible(true)} style={styles.actionButton} />
         </View>
         <View style={styles.search}>
           <Feather name="search" size={18} color={colors.textMuted} />
           <TextInput
-            accessibilityLabel="Search transactions"
+            accessibilityLabel="Search spending"
             value={search}
             onChangeText={setSearch}
-            placeholder="Search merchant or category"
+            placeholder="Search by name or type"
             placeholderTextColor={colors.textMuted}
             style={styles.searchInput}
             selectionColor={colors.primary}
           />
           {search ? (
-            <Pressable accessibilityLabel="Clear transaction search" onPress={() => setSearch('')}>
+            <Pressable accessibilityLabel="Clear spending search" onPress={() => setSearch('')}>
               <Feather name="x-circle" size={17} color={colors.textMuted} />
             </Pressable>
           ) : null}
@@ -149,12 +149,12 @@ export function TransactionsScreen() {
               onPress={item.source === 'manual' || item.source === 'csv' ? () => remove(item) : undefined}
             />
           ))}
-          {!filtered.length ? <Text style={styles.empty}>No matching transactions.</Text> : null}
-          {filtered.length > 120 ? <Text style={styles.limit}>Showing the newest 120 of {filtered.length} matching transactions.</Text> : null}
+          {!filtered.length ? <Text style={styles.empty}>No matching spending entries.</Text> : null}
+          {filtered.length > 120 ? <Text style={styles.limit}>Showing the newest 120 of {filtered.length} matching entries.</Text> : null}
         </View>
         <View style={styles.csvHelp}>
           <Feather name="info" size={16} color={colors.primary} />
-          <Text style={styles.csvText}>CSV columns: date, merchant, amount, direction, category, essential. Re-imported rows are skipped, and importing never changes the balance.</Text>
+          <Text style={styles.csvText}>Import a bank CSV with date, merchant and amount columns. Repeated entries are skipped. Importing does not change the balance you entered.</Text>
         </View>
       </Screen>
 
@@ -162,20 +162,20 @@ export function TransactionsScreen() {
         <Pressable style={styles.backdrop} onPress={() => setAddVisible(false)}>
           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add transaction</Text>
-              <Pressable accessibilityLabel="Close add transaction" onPress={() => setAddVisible(false)}>
+              <Text style={styles.modalTitle}>Add money in or out</Text>
+              <Pressable accessibilityLabel="Close add money form" onPress={() => setAddVisible(false)}>
                 <Feather name="x" size={22} color={colors.text} />
               </Pressable>
             </View>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
-              <Text style={styles.fieldLabel}>Transaction type</Text>
+              <Text style={styles.fieldLabel}>Is this money in or money out?</Text>
               <ChoiceChips values={['debit', 'credit']} selected={direction} onSelect={changeDirection} />
               <View style={styles.firstField}>
-                <FormField label="Merchant or description" value={merchant} onChangeText={setMerchant} placeholder={direction === 'credit' ? 'e.g. Freelance payment' : 'e.g. Swiggy'} />
+                <FormField label="Name" value={merchant} onChangeText={setMerchant} placeholder={direction === 'credit' ? 'e.g. Freelance payment' : 'e.g. Swiggy'} />
               </View>
               <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="500" />
               <FormField label="Date (YYYY-MM-DD)" value={date} onChangeText={setDate} />
-              <Text style={styles.fieldLabel}>Category</Text>
+              <Text style={styles.fieldLabel}>What is it for?</Text>
               <ChoiceChips
                 values={direction === 'credit' ? ['income', 'other'] : TRANSACTION_CATEGORIES.filter((value) => value !== 'income')}
                 selected={category}
@@ -183,15 +183,15 @@ export function TransactionsScreen() {
               />
               {direction === 'debit' ? (
                 <>
-                  <Text style={[styles.fieldLabel, styles.spacedLabel]}>Spending type</Text>
+                  <Text style={[styles.fieldLabel, styles.spacedLabel]}>Is this essential?</Text>
                   <ChoiceChips values={['flexible', 'essential']} selected={essential} onSelect={setEssential} />
                 </>
               ) : null}
               <View style={styles.balanceNote}>
                 <Feather name="info" size={15} color={colors.primary} />
-                <Text style={styles.balanceNoteText}>Saving updates the available balance. Removing this entry later reverses that change.</Text>
+                <Text style={styles.balanceNoteText}>Saving changes your balance. If you remove this later, the balance changes back.</Text>
               </View>
-              <FinButton label="Save transaction" icon="check" onPress={save} style={styles.saveButton} />
+              <FinButton label="Save" icon="check" onPress={save} style={styles.saveButton} />
             </ScrollView>
           </Pressable>
         </Pressable>

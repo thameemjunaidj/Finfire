@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, ViewStyle } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
-import { titleCase } from '../utils/format';
+import { plainLabel } from '../utils/format';
 
 export function ChoiceChips<T extends string>({ values, selected, onSelect, style }: { values: T[]; selected: T; onSelect: (value: T) => void; style?: ViewStyle }) {
   return (
@@ -12,12 +12,12 @@ export function ChoiceChips<T extends string>({ values, selected, onSelect, styl
           <Pressable
             key={value}
             accessibilityRole="radio"
-            accessibilityLabel={titleCase(value)}
+            accessibilityLabel={plainLabel(value)}
             accessibilityState={{ selected: active }}
             onPress={() => onSelect(value)}
             style={[styles.chip, active && styles.activeChip]}
           >
-            <Text style={[styles.label, active && styles.activeLabel]}>{titleCase(value)}</Text>
+            <Text style={[styles.label, active && styles.activeLabel]}>{plainLabel(value)}</Text>
           </Pressable>
         );
       })}

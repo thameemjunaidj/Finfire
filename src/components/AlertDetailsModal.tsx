@@ -2,9 +2,8 @@ import { Feather } from '@expo/vector-icons';
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
-import { APP_NAME } from '../theme/brand';
 import { FinancialAlert } from '../types/finance';
-import { severityBackground, severityColor, titleCase } from '../utils/format';
+import { plainLabel, severityBackground, severityColor } from '../utils/format';
 import { FinButton } from './FinButton';
 
 export function AlertDetailsModal({ alert, onClose }: { alert: FinancialAlert | null; onClose: () => void }) {
@@ -21,20 +20,20 @@ export function AlertDetailsModal({ alert, onClose }: { alert: FinancialAlert | 
                 <Feather name="alert-triangle" size={24} color={accent} />
               </View>
               <View style={styles.headerText}>
-                <Text style={[styles.severity, { color: accent }]}>{titleCase(alert.severity)} warning</Text>
+                <Text style={[styles.severity, { color: accent }]}>{plainLabel(alert.severity)} warning</Text>
                 <Text style={styles.title}>{alert.title}</Text>
               </View>
             </View>
             <Text style={styles.message}>{alert.message}</Text>
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>{`WHY ${APP_NAME.toUpperCase()} FLAGGED THIS`}</Text>
+              <Text style={styles.infoLabel}>WHY YOU ARE SEEING THIS</Text>
               <Text style={styles.infoText}>{alert.evidence}</Text>
             </View>
             <View style={[styles.infoCard, { borderColor: `${colors.safe}55`, backgroundColor: colors.safeSoft }]}>
-              <Text style={[styles.infoLabel, { color: colors.safe }]}>ACTION TO TAKE NOW</Text>
+              <Text style={[styles.infoLabel, { color: colors.safe }]}>WHAT YOU CAN DO</Text>
               <Text style={styles.infoText}>{alert.recommendation}</Text>
             </View>
-            <Text style={styles.disclaimer}>This is an informational warning based on local data, not regulated financial advice.</Text>
+            <Text style={styles.disclaimer}>This is based on the information in the app. It is guidance, not financial advice.</Text>
             <FinButton label="Got it" onPress={onClose} style={styles.button} />
           </ScrollView>
         </Pressable>

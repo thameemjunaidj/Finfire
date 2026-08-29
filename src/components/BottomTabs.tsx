@@ -7,10 +7,10 @@ export type AppTab = 'home' | 'forecast' | 'alerts' | 'transactions' | 'simulato
 
 const tabs: Array<{ id: AppTab; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { id: 'home', label: 'Home', icon: 'home' },
-  { id: 'forecast', label: 'Forecast', icon: 'trending-up' },
-  { id: 'alerts', label: 'Alerts', icon: 'alert-triangle' },
-  { id: 'transactions', label: 'Transactions', icon: 'list' },
-  { id: 'simulator', label: 'What If?', icon: 'sliders' },
+  { id: 'forecast', label: 'Future', icon: 'trending-up' },
+  { id: 'alerts', label: 'Warnings', icon: 'alert-triangle' },
+  { id: 'transactions', label: 'Spending', icon: 'list' },
+  { id: 'simulator', label: 'Try It', icon: 'sliders' },
 ];
 
 export function BottomTabs({ active, onChange, alertCount }: { active: AppTab; onChange: (tab: AppTab) => void; alertCount: number }) {

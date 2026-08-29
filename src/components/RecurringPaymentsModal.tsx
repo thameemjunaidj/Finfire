@@ -4,7 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
 import { TransactionCategory, TRANSACTION_CATEGORIES } from '../types/finance';
-import { formatCurrency, formatDate, titleCase } from '../utils/format';
+import { formatCurrency, formatDate, plainLabel } from '../utils/format';
 import { confirmAction, showMessage } from '../utils/alerts';
 import { toIsoDate } from '../utils/dates';
 import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
@@ -44,7 +44,7 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
     const previous = previousAmount.trim() ? parseNonNegativeMoney(previousAmount) : current;
     const minimumDate = profile.analysisDate ?? toIsoDate(new Date());
     if (!merchant.trim() || current === null || previous === null || !isDateOnOrAfter(date, minimumDate)) {
-      showMessage('Check the scheduled payment', `Enter a name, valid amounts, and a payment date on or after ${minimumDate}.`);
+      showMessage('Check the bill details', `Enter a name, valid amounts, and a payment date on or after ${minimumDate}.`);
       return;
     }
     addRecurringPayment({
@@ -62,8 +62,8 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
   };
 
   const remove = (id: string, name: string) => confirmAction({
-    title: 'Remove scheduled payment?',
-    message: `${name} will no longer be included in payment pressure or money runway.`,
+    title: 'Remove this upcoming bill?',
+    message: `${name} will no longer be included in your warnings or days-left estimate.`,
     confirmLabel: 'Remove',
     destructive: true,
     onConfirm: () => deleteRecurringPayment(id),
@@ -75,8 +75,8 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}>
             <View style={styles.headerText}>
-              <Text style={styles.title}>Scheduled payments</Text>
-              <Text style={styles.subtitle}>These power payment-pressure, subscription, and runway warnings.</Text>
+              <Text style={styles.title}>Upcoming bills</Text>
+              <Text style={styles.subtitle}>Add regular payments so the app can warn you before several are due together.</Text>
             </View>
             <Pressable accessibilityLabel="Close scheduled payments" onPress={close} style={styles.close}>
               <Feather name="x" size={20} color={colors.text} />
@@ -85,14 +85,14 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
             {!adding ? (
               <>
-                <FinButton label="Add scheduled payment" icon="plus" onPress={() => setAdding(true)} />
+                <FinButton label="Add an upcoming bill" icon="plus" onPress={() => setAdding(true)} />
                 <View style={styles.list}>
                   {sortedPayments.map((payment) => (
                     <View key={payment.id} style={styles.paymentRow}>
                       <View style={styles.paymentIcon}><Feather name="calendar" size={18} color={colors.primary} /></View>
                       <View style={styles.paymentInfo}>
                         <Text style={styles.paymentName}>{payment.merchant}</Text>
-                        <Text style={styles.paymentMeta}>{formatDate(payment.nextPaymentDate, true)} · {titleCase(payment.category)} · {payment.essential ? 'Essential' : 'Flexible'}</Text>
+                        <Text style={styles.paymentMeta}>{formatDate(payment.nextPaymentDate, true)} · {plainLabel(payment.category)} · {payment.essential ? 'Essential' : 'Optional'}</Text>
                         {payment.currentAmount !== payment.previousAmount ? (
                           <Text style={styles.change}>{formatCurrency(payment.previousAmount)} → {formatCurrency(payment.currentAmount)}</Text>
                         ) : null}
@@ -108,21 +108,21 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
                       </Pressable>
                     </View>
                   ))}
-                  {!sortedPayments.length ? <Text style={styles.empty}>No scheduled payments yet.</Text> : null}
+                  {!sortedPayments.length ? <Text style={styles.empty}>No upcoming bills added yet.</Text> : null}
                 </View>
               </>
             ) : (
               <View>
-                <Text style={styles.formTitle}>New scheduled payment</Text>
-                <FormField label="Merchant or bill name" value={merchant} onChangeText={setMerchant} placeholder="e.g. Netflix" />
+                <Text style={styles.formTitle}>Add an upcoming bill</Text>
+                <FormField label="Bill or service name" value={merchant} onChangeText={setMerchant} placeholder="e.g. Netflix" />
                 <FormField label="Current amount (₹)" value={currentAmount} onChangeText={setCurrentAmount} keyboardType="decimal-pad" placeholder="649" />
                 <FormField label="Previous amount (₹, optional)" value={previousAmount} onChangeText={setPreviousAmount} keyboardType="decimal-pad" placeholder="649" />
                 <FormField label="Next payment date (YYYY-MM-DD)" value={date} onChangeText={setDate} placeholder="2026-09-01" />
-                <Text style={styles.label}>Category</Text>
+                <Text style={styles.label}>What is it for?</Text>
                 <ChoiceChips values={paymentCategories} selected={category} onSelect={setCategory} />
-                <Text style={[styles.label, styles.spacedLabel]}>Spending type</Text>
+                <Text style={[styles.label, styles.spacedLabel]}>Is this essential?</Text>
                 <ChoiceChips values={['flexible', 'essential']} selected={spendingType} onSelect={setSpendingType} />
-                <FinButton label="Save scheduled payment" icon="check" onPress={save} style={styles.save} />
+                <FinButton label="Save bill" icon="check" onPress={save} style={styles.save} />
                 <FinButton label="Cancel" variant="ghost" onPress={() => setAdding(false)} style={styles.cancel} />
               </View>
             )}

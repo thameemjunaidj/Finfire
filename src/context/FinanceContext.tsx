@@ -22,11 +22,7 @@ import {
   PredictionNarrative,
   SimulationInput,
   SimulationResult,
-<<<<<<< HEAD
-  SpendingForecast,
   SpendingPrediction,
-=======
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
   Transaction,
   TransactionImportSummary,
   RecurringPayment,
@@ -131,27 +127,6 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       onboardingComplete: true,
       notificationsEnabled: true,
     }),
-<<<<<<< HEAD
-    addTransaction: (transaction) => setState((current) => ({
-      ...current,
-      profile: {
-        ...current.profile,
-        availableBalance: Math.max(
-          0,
-          current.profile.availableBalance + (transaction.direction === 'credit' ? transaction.amount : -transaction.amount),
-        ),
-      },
-      transactions: [
-        ...current.transactions,
-        { ...transaction, id: `manual-${Date.now()}`, source: 'manual' },
-      ],
-    })),
-    importTransactions: (transactions) => setState((current) => ({
-      ...current,
-      transactions: [...current.transactions, ...transactions],
-    })),
-    runSimulation: (input) => simulatePurchase(analysisDataset, input),
-=======
     addTransaction: (transaction) => setState((current) => addTransactionToState(current, createManualTransaction(transaction))),
     deleteTransaction: (id) => setState((current) => removeTransactionFromState(current, id)),
     importTransactions: (transactions) => {
@@ -162,19 +137,14 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     updateProfile: (profile) => setState((current) => ({ ...current, profile })),
     addRecurringPayment: (payment) => setState((current) => addRecurringPaymentToState(current, createRecurringPayment(payment))),
     deleteRecurringPayment: (id) => setState((current) => removeRecurringPaymentFromState(current, id)),
-    runSimulation: (input) => simulatePurchase(dataset, input),
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
+    runSimulation: (input) => simulatePurchase(analysisDataset, input),
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
     resetDemo: () => setState({ ...demoDataset, onboardingComplete: true, notificationsEnabled: state.notificationsEnabled }),
     eraseLocalData: async () => {
       await clearFinanceState();
       setState(initialState);
     },
-<<<<<<< HEAD
-  }), [analysisDataset, dataset, forecast, loaded, narrative, prediction, state.notificationsEnabled, state.onboardingComplete, summary]);
-=======
-  }), [dataset, forecast, loaded, state, summary]);
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
+  }), [analysisDataset, forecast, loaded, narrative, prediction, state, summary]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

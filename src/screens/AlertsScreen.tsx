@@ -35,7 +35,7 @@ export function AlertsScreen() {
   return (
     <>
       <Screen
-        title="Early warnings"
+        title="Warnings"
         subtitle={
           urgent.length
             ? `${urgent.length} ${urgent.length === 1 ? 'thing needs' : 'things need'} attention${criticalCount ? `, ${criticalCount} urgently` : ''}.`
@@ -51,9 +51,9 @@ export function AlertsScreen() {
         ) : (
           <View style={styles.clear}>
             <Feather name="check-circle" size={26} color={colors.safe} />
-            <Text style={styles.clearTitle}>All clear</Text>
+            <Text style={styles.clearTitle}>Everything looks okay</Text>
             <Text style={styles.clearText}>
-              Nothing in your spending looks unusual, and no payments are stacking up.
+              Nothing in your spending looks unusual, and no bills are due together.
             </Text>
           </View>
         )}
@@ -67,7 +67,7 @@ export function AlertsScreen() {
               style={styles.lowerToggle}
             >
               <Text style={styles.lowerLabel}>
-                {lower.length} lower priority {lower.length === 1 ? 'signal' : 'signals'}
+                {lower.length} other {lower.length === 1 ? 'warning' : 'warnings'}
               </Text>
               <Feather name={showLower ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
             </Pressable>
@@ -83,7 +83,7 @@ export function AlertsScreen() {
         ) : null}
 
         <Text style={styles.footnote}>
-          Tap any warning for the evidence behind it and what to do about it.
+          Tap a warning to see why it appeared and what you can do.
         </Text>
       </Screen>
 

@@ -9,12 +9,12 @@ export function RiskGauge({ score, band, explanation }: { score: number; band: R
   return (
     <View
       accessible
-      accessibilityLabel={`Financial risk ${band}, score ${score} out of 100. ${explanation}`}
+      accessibilityLabel={`Money health ${band}, score ${score} out of 100. ${explanation}`}
       style={[styles.card, { borderColor: `${accent}80` }]}
     >
       <View style={styles.topRow}>
         <View>
-          <Text style={styles.eyebrow}>FINANCIAL RISK</Text>
+          <Text style={styles.eyebrow}>YOUR MONEY HEALTH</Text>
           <Text style={[styles.band, { color: accent }]}>{band}</Text>
         </View>
         <View style={[styles.scoreCircle, { borderColor: accent, backgroundColor: `${accent}15` }]}>

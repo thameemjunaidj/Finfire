@@ -51,26 +51,26 @@ export function OnboardingScreen() {
         {!custom ? (
           <>
             <View style={styles.heroCard}>
-              <Text style={styles.heroEyebrow}>EARLY-WARNING, NOT EXPENSE REPORTING</Text>
-              <Text style={styles.heroTitle}>Know what could hurt your finances—before it does.</Text>
-              {['Five explainable risk detectors', 'Money runway and payment pressure', 'Purchase impact simulator'].map((item) => (
+              <Text style={styles.heroEyebrow}>SEE PROBLEMS BEFORE THEY HAPPEN</Text>
+              <Text style={styles.heroTitle}>Understand your money without confusing financial terms.</Text>
+              {['Clear warnings with reasons', 'See how long your money may last', 'Check a purchase before you buy'].map((item) => (
                 <View key={item} style={styles.feature}><Feather name="check-circle" size={17} color={colors.safe} /><Text style={styles.featureText}>{item}</Text></View>
               ))}
             </View>
-            <FinButton label="Try demo account" icon="play" onPress={useDemoAccount} />
-            <FinButton label="Set up my profile" icon="user" variant="secondary" onPress={() => setCustom(true)} style={styles.secondaryButton} />
-            <Text style={styles.privacy}>No bank login required. Demo and imported data stay on your device.</Text>
+            <FinButton label="Try the sample account" icon="play" onPress={useDemoAccount} />
+            <FinButton label="Use my own details" icon="user" variant="secondary" onPress={() => setCustom(true)} style={styles.secondaryButton} />
+            <Text style={styles.privacy}>No bank login needed. Your information stays on this device.</Text>
           </>
         ) : (
           <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Set up your profile</Text>
-            <Text style={styles.formHelper}>You can add or import transactions after this step.</Text>
+            <Text style={styles.formTitle}>Tell us about your money</Text>
+            <Text style={styles.formHelper}>You can add spending or import a bank CSV file next.</Text>
             <FormField label="Your name" value={name} onChangeText={setName} placeholder="e.g. Thameem" />
             <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="48000" />
-            <FormField label="Available balance (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
+            <FormField label="Money currently available (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
             <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder={addDays(today, 14)} />
-            <FormField label="Essential monthly expenses (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
-            <FinButton label="Create local profile" icon="arrow-right" disabled={!canContinue} onPress={submit} />
+            <FormField label="Essential bills each month (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
+            <FinButton label="Continue" icon="arrow-right" disabled={!canContinue} onPress={submit} />
             <FinButton label="Back" variant="ghost" onPress={() => setCustom(false)} style={styles.secondaryButton} />
           </View>
         )}

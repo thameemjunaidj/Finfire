@@ -3,15 +3,15 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
 import { Transaction } from '../types/finance';
-import { categoryIcon, formatCurrency, formatDate, titleCase } from '../utils/format';
+import { categoryIcon, formatCurrency, formatDate, plainLabel } from '../utils/format';
 
 export function TransactionRow({ transaction, onPress }: { transaction: Transaction; onPress?: () => void }) {
   const credit = transaction.direction === 'credit';
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
-      accessibilityLabel={`${transaction.merchant}, ${credit ? 'credit' : 'debit'} ${formatCurrency(transaction.amount)}`}
-      accessibilityHint={onPress ? 'Opens options for this transaction' : undefined}
+      accessibilityLabel={`${transaction.merchant}, ${credit ? 'money in' : 'money out'} ${formatCurrency(transaction.amount)}`}
+      accessibilityHint={onPress ? 'Opens options for this entry' : undefined}
       disabled={!onPress}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
@@ -24,7 +24,7 @@ export function TransactionRow({ transaction, onPress }: { transaction: Transact
           <Text style={styles.merchant} numberOfLines={1}>{transaction.merchant}</Text>
           {transaction.recurringGroupId ? <Feather name="repeat" size={12} color={colors.primary} /> : null}
         </View>
-        <Text style={styles.meta}>{formatDate(transaction.date)} · {titleCase(transaction.category)} · {transaction.essential ? 'Essential' : 'Flexible'}{transaction.source && transaction.source !== 'demo' ? ` · ${titleCase(transaction.source)}` : ''}</Text>
+        <Text style={styles.meta}>{formatDate(transaction.date)} · {plainLabel(transaction.category)} · {transaction.essential ? 'Essential' : 'Optional'}{transaction.source && transaction.source !== 'demo' ? ` · ${plainLabel(transaction.source)}` : ''}</Text>
       </View>
       <Text style={[styles.amount, { color: credit ? colors.safe : colors.text }]}>{credit ? '+' : '−'}{formatCurrency(transaction.amount)}</Text>
       {onPress ? <Feather name="more-vertical" size={16} color={colors.textMuted} /> : null}

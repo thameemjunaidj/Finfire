@@ -3,7 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
 import { AlertSeverity, FinancialAlert } from '../types/finance';
-import { titleCase } from '../utils/format';
+import { plainLabel } from '../utils/format';
 
 /**
  * Alert card.
@@ -87,12 +87,8 @@ export function AlertCard({ alert, onPress }: { alert: FinancialAlert; onPress?:
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
-<<<<<<< HEAD
-      accessibilityLabel={`${alert.severity} alert: ${alert.title}`}
-=======
-      accessibilityLabel={`${titleCase(alert.severity)} warning: ${alert.title}. ${alert.message}`}
+      accessibilityLabel={`${plainLabel(alert.severity)} warning: ${alert.title}. ${alert.message}`}
       accessibilityHint={onPress ? 'Opens evidence and recommended action' : undefined}
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
       onPress={onPress}
       style={({ pressed }) => [
         styles.card,
@@ -125,7 +121,7 @@ export function AlertCard({ alert, onPress }: { alert: FinancialAlert; onPress?:
               },
             ]}
           >
-            {titleCase(alert.severity)}
+            {plainLabel(alert.severity)}
           </Text>
         </View>
 

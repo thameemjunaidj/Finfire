@@ -43,11 +43,11 @@ function CategoryRow({ item, widest }: { item: CategoryForecast; widest: number 
       </View>
 
       <View style={styles.categoryFoot}>
-        <Text style={styles.categoryHelper}>usually {formatCurrency(item.baselineMonth)}</Text>
+        <Text style={styles.categoryHelper}>usual amount {formatCurrency(item.baselineMonth)}</Text>
         {over ? (
           <Text style={styles.trendUp}>+{Math.round(item.trendPercentage)}%</Text>
         ) : (
-          <Text style={styles.trendFlat}>on track</Text>
+          <Text style={styles.trendFlat}>looks normal</Text>
         )}
       </View>
     </View>
@@ -87,8 +87,8 @@ export function ForecastScreen() {
 
   return (
     <Screen
-      title="What happens next"
-      subtitle={`Day ${forecast.daysElapsed} of the month — ${forecast.daysRemaining} days still to pay for.`}
+      title="Your month ahead"
+      subtitle={`${forecast.daysRemaining} days left this month. Here is what may happen if nothing changes.`}
     >
       {/* ---- The prediction, in words first ---- */}
       <View style={[styles.predictionCard, risky && styles.predictionCardAlert]}>
@@ -114,12 +114,12 @@ export function ForecastScreen() {
           {/* Says plainly that this is a sample account, so nobody in the room
               mistakes a demo figure for a real one — and flags what lands next. */}
           <View style={styles.demoChip}>
-            <Text style={styles.demoChipText}>Demo calculation · AI wording arrives tomorrow</Text>
+            <Text style={styles.demoChipText}>Based on the sample spending in this app</Text>
           </View>
-          <Text style={styles.methodTitle}>How this was worked out</Text>
+          <Text style={styles.methodTitle}>How we worked this out</Text>
           <Text style={styles.methodText}>{prediction.method}</Text>
           <Text style={styles.methodText}>
-            {prediction.daysObserved} days of sample spending · {prediction.confidence} confidence
+            Based on {prediction.daysObserved} days of sample spending
           </Text>
         </View>
       </View>
@@ -127,15 +127,15 @@ export function ForecastScreen() {
       {/* ---- The headline: where this month ends ---- */}
       <View style={[styles.hero, savingsShort && styles.heroAlert]}>
         <Text style={styles.heroLabel}>
-          {forecast.projectedSavings >= 0 ? 'Projected savings this month' : 'Projected shortfall this month'}
+          {forecast.projectedSavings >= 0 ? 'You may save this month' : 'You may be short this month'}
         </Text>
         <Text style={[styles.heroValue, savingsShort && styles.heroValueAlert]}>
           {formatCurrency(Math.abs(forecast.projectedSavings))}
         </Text>
         <Text style={styles.heroHelper}>
           {savingsShort
-            ? `${formatCurrency(forecast.savingsGap)} short of your ${formatCurrency(forecast.savingsTarget)} target, if nothing changes.`
-            : `Ahead of your ${formatCurrency(forecast.savingsTarget)} target. Keep going.`}
+            ? `${formatCurrency(forecast.savingsGap)} below your ${formatCurrency(forecast.savingsTarget)} savings goal if nothing changes.`
+            : `You are on track to reach your ${formatCurrency(forecast.savingsTarget)} savings goal.`}
         </Text>
 
         <View style={styles.heroSplit}>
@@ -145,7 +145,7 @@ export function ForecastScreen() {
           </View>
           <View style={styles.heroDivider} />
           <View style={styles.heroStat}>
-            <Text style={styles.heroStatLabel}>Projected spend</Text>
+            <Text style={styles.heroStatLabel}>Likely spending</Text>
             <Text style={styles.heroStatValue}>{formatCurrency(forecast.projectedMonthEndSpending)}</Text>
           </View>
         </View>
@@ -162,16 +162,16 @@ export function ForecastScreen() {
         />
         <MetricCard
           icon="target"
-          label="Safe to spend"
+          label="Daily spending limit"
           value={`${formatCurrency(forecast.safeDailyAllowance)}/day`}
           helper={`You are spending ${formatCurrency(forecast.currentDailyPace)} a day`}
           accent={forecast.currentDailyPace > forecast.safeDailyAllowance ? colors.critical : colors.safe}
         />
         <MetricCard
           icon="activity"
-          label="Month projection"
+          label="Likely month total"
           value={formatCurrency(forecast.projectedMonthEndSpending, true)}
-          helper={`A normal month is ${formatCurrency(forecast.baselineMonthlySpending, true)}`}
+          helper={`You usually spend ${formatCurrency(forecast.baselineMonthlySpending, true)}`}
           accent={forecast.projectedMonthEndSpending > forecast.baselineMonthlySpending ? colors.critical : colors.safe}
         />
         <MetricCard
@@ -184,16 +184,16 @@ export function ForecastScreen() {
       </View>
 
       {/* ---- Category by category ---- */}
-      <SectionTitle title="Where the month is heading" />
+      <SectionTitle title="Likely spending by category" />
       <View style={styles.panel}>
         <View style={styles.legend}>
           <View style={styles.legendItem}>
             <View style={[styles.legendSwatch, { backgroundColor: colors.primary }]} />
-            <Text style={styles.legendText}>projected</Text>
+            <Text style={styles.legendText}>likely</Text>
           </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendSwatch, styles.legendSwatchBaseline]} />
-            <Text style={styles.legendText}>your normal</Text>
+            <Text style={styles.legendText}>usual</Text>
           </View>
         </View>
         {forecast.categories.map((item) => (
@@ -202,7 +202,7 @@ export function ForecastScreen() {
       </View>
 
       {/* ---- What to actually do ---- */}
-      <SectionTitle title={savingsShort ? 'How to close the gap' : 'How to save even more'} />
+      <SectionTitle title={savingsShort ? 'Simple ways to reach your goal' : 'Ways to save a little more'} />
       {forecast.actions.length > 0 ? (
         forecast.actions.map((action, index) => (
           <ActionCard key={action.id} action={action} index={index} />
@@ -210,7 +210,7 @@ export function ForecastScreen() {
       ) : (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyText}>
-            Nothing to cut — your spending is already inside its normal range for every category.
+            Your spending already looks normal in every category.
           </Text>
         </View>
       )}

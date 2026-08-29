@@ -94,7 +94,7 @@ export function explainOnDevice(
     source: 'on-device',
     headline: 'You should reach your next income comfortably',
     body:
-      `Running short is ${describeChance(prediction.shortfallProbability)} — it happened in only ${chancePercent} of 100 simulated months. `
+      `Running short is ${describeChance(prediction.shortfallProbability)} — about ${chancePercent} times in 100 months with similar spending. `
       + `You should finish with about ${formatCurrency(prediction.monthEndBalance.p50)}.\n\n`
       + `${profile.name}, ${formatCurrency(forecast.safeDailyAllowance)} a day keeps it that way.`,
   };

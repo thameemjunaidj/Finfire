@@ -8,7 +8,6 @@ import { RiskGauge } from '../components/RiskGauge';
 import { Screen, SectionTitle } from '../components/Screen';
 import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
-import { APP_NAME } from '../theme/brand';
 import { FinancialAlert } from '../types/finance';
 import { toIsoDate } from '../utils/dates';
 import { formatCurrency, formatDate, riskColor } from '../utils/format';
@@ -23,12 +22,12 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
     <>
       <Screen
         title={`Hello, ${profile.name}`}
-        subtitle={`${month} · Your financial early-warning dashboard`}
+        subtitle={`${month} · A simple look at your money`}
         action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
       >
         <View style={styles.dataStatus} accessible accessibilityLabel={`${profile.id.startsWith('demo-') ? 'Demo' : 'Local'} data evaluated ${formatDate(dashboardDate, true)}`}>
           <Feather name={profile.id.startsWith('demo-') ? 'play-circle' : 'lock'} size={14} color={colors.primary} />
-          <Text style={styles.dataStatusText}>{profile.id.startsWith('demo-') ? 'DEMO DATA' : 'LOCAL PROFILE'} · Evaluated {formatDate(dashboardDate, true)}</Text>
+          <Text style={styles.dataStatusText}>{profile.id.startsWith('demo-') ? 'SAMPLE ACCOUNT' : 'YOUR DATA'} · Updated {formatDate(dashboardDate, true)}</Text>
         </View>
         <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
         {/* Two metrics, not four. Projected spend and upcoming payments both
@@ -36,12 +35,12 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             repeating them here was a large part of what made this screen read
             as a wall of numbers. */}
         <View style={styles.metrics}>
-          <MetricCard label="Available balance" value={formatCurrency(summary.disposableBalance)} helper={`${formatCurrency(summary.protectedBalance)} after essential dues`} icon="credit-card" accent={colors.safe} />
-          <MetricCard label="Money runway" value={`${summary.runwayDays} days`} helper="At your recent flexible-spend pace" icon="battery-charging" accent={riskColor(summary.riskBand)} />
+          <MetricCard label="Money left" value={formatCurrency(summary.disposableBalance)} helper={`${formatCurrency(summary.protectedBalance)} after essential bills`} icon="credit-card" accent={colors.safe} />
+          <MetricCard label="How long it may last" value={`${summary.runwayDays} days`} helper="Based on your recent optional spending" icon="battery-charging" accent={riskColor(summary.riskBand)} />
         </View>
-        <SectionTitle title="Spending trend" />
+        <SectionTitle title="Monthly spending" />
         <View style={styles.chartCard}>
-          <View style={styles.chartHeader}><Text style={styles.chartLabel}>Monthly debits</Text><Text style={styles.chartValue}>{formatCurrency(summary.currentMonthSpending)}</Text></View>
+          <View style={styles.chartHeader}><Text style={styles.chartLabel}>Spent this month</Text><Text style={styles.chartValue}>{formatCurrency(summary.currentMonthSpending)}</Text></View>
           <View style={styles.chart}>
             {summary.monthlySpend.map((item, index) => {
               const active = index === summary.monthlySpend.length - 1;
@@ -55,21 +54,16 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             })}
           </View>
         </View>
-<<<<<<< HEAD
-        <SectionTitle title="Needs attention" action={<Pressable onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
+        <SectionTitle title="What needs attention" action={<Pressable accessibilityRole="button" accessibilityLabel="View all warnings" onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
         {/* Two, not three — Home is a glance, the Alerts tab is the full list. */}
         {summary.alerts.slice(0, 2).map((alert) => <AlertCard key={alert.id} alert={alert} onPress={() => setSelectedAlert(alert)} />)}
         {summary.alerts.length > 2 ? (
-          <Pressable onPress={onViewAlerts} style={styles.moreRow}>
+          <Pressable accessibilityRole="button" accessibilityLabel="View remaining warnings" onPress={onViewAlerts} style={styles.moreRow}>
             <Text style={styles.moreText}>{summary.alerts.length - 2} more</Text>
             <Feather name="arrow-right" size={14} color={colors.textMuted} />
           </Pressable>
         ) : null}
-=======
-        <SectionTitle title="Top warnings" action={<Pressable accessibilityRole="button" accessibilityLabel="View all warnings" onPress={onViewAlerts}><Text style={styles.link}>View all</Text></Pressable>} />
-        {summary.alerts.slice(0, 3).map((alert) => <AlertCard key={alert.id} alert={alert} onPress={() => setSelectedAlert(alert)} />)}
->>>>>>> d76e5acd6e84024390df24c3ee9ff98c69ab238a
-        {!summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>No urgent warnings</Text><Text style={styles.emptyText}>{APP_NAME} will explain any material change it detects.</Text></View> : null}
+        {!summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>Everything looks okay</Text><Text style={styles.emptyText}>We will tell you when something needs attention.</Text></View> : null}
       </Screen>
       <AlertDetailsModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
     </>

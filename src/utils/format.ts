@@ -28,6 +28,25 @@ export function titleCase(value: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const plainLabels: Record<string, string> = {
+  all: 'All',
+  debit: 'Money out',
+  credit: 'Money in',
+  flexible: 'Optional',
+  essential: 'Essential',
+  critical: 'Urgent',
+  high: 'Important',
+  watch: 'Watch',
+  utilities: 'Bills',
+  subscription: 'Subscriptions',
+  csv: 'Imported',
+  manual: 'Added by you',
+};
+
+export function plainLabel(value: string): string {
+  return plainLabels[value] ?? titleCase(value);
+}
+
 export function severityColor(severity: AlertSeverity): string {
   if (severity === 'critical') return colors.critical;
   if (severity === 'high') return colors.high;
