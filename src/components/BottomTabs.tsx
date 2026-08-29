@@ -5,13 +5,11 @@ import { colors, radii, spacing } from '../theme/colors';
 
 export type AppTab = 'home' | 'forecast' | 'alerts' | 'transactions' | 'simulator';
 
-// Labels are shortened now that there are five tabs — at a fifth of the screen
-// "Transactions" would truncate to an ellipsis on a narrow phone.
 const tabs: Array<{ id: AppTab; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'forecast', label: 'Forecast', icon: 'trending-up' },
   { id: 'alerts', label: 'Alerts', icon: 'alert-triangle' },
-  { id: 'transactions', label: 'Activity', icon: 'list' },
+  { id: 'transactions', label: 'Transactions', icon: 'list' },
   { id: 'simulator', label: 'What If?', icon: 'sliders' },
 ];
 
@@ -22,7 +20,14 @@ export function BottomTabs({ active, onChange, alertCount }: { active: AppTab; o
         {tabs.map((tab) => {
           const selected = tab.id === active;
           return (
-            <Pressable key={tab.id} onPress={() => onChange(tab.id)} accessibilityRole="tab" accessibilityState={{ selected }} style={styles.tab}>
+            <Pressable
+              key={tab.id}
+              onPress={() => onChange(tab.id)}
+              accessibilityRole="tab"
+              accessibilityLabel={tab.id === 'alerts' && alertCount > 0 ? `${tab.label}, ${alertCount} active warnings` : tab.label}
+              accessibilityState={{ selected }}
+              style={styles.tab}
+            >
               <View style={[styles.iconWrap, selected && styles.activeIcon]}>
                 <Feather name={tab.icon} size={19} color={selected ? colors.primary : colors.textMuted} />
                 {tab.id === 'alerts' && alertCount > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{Math.min(alertCount, 9)}</Text></View> : null}

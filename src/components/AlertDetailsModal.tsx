@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
 import { APP_NAME } from '../theme/brand';
 import { FinancialAlert } from '../types/finance';
@@ -14,27 +14,29 @@ export function AlertDetailsModal({ alert, onClose }: { alert: FinancialAlert | 
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
-          <View style={styles.handle} />
-          <View style={styles.headerRow}>
-            <View style={[styles.icon, { backgroundColor: severityBackground(alert.severity) }]}>
-              <Feather name="alert-triangle" size={24} color={accent} />
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.handle} />
+            <View style={styles.headerRow}>
+              <View style={[styles.icon, { backgroundColor: severityBackground(alert.severity) }]}>
+                <Feather name="alert-triangle" size={24} color={accent} />
+              </View>
+              <View style={styles.headerText}>
+                <Text style={[styles.severity, { color: accent }]}>{titleCase(alert.severity)} warning</Text>
+                <Text style={styles.title}>{alert.title}</Text>
+              </View>
             </View>
-            <View style={styles.headerText}>
-              <Text style={[styles.severity, { color: accent }]}>{titleCase(alert.severity)} warning</Text>
-              <Text style={styles.title}>{alert.title}</Text>
+            <Text style={styles.message}>{alert.message}</Text>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoLabel}>{`WHY ${APP_NAME.toUpperCase()} FLAGGED THIS`}</Text>
+              <Text style={styles.infoText}>{alert.evidence}</Text>
             </View>
-          </View>
-          <Text style={styles.message}>{alert.message}</Text>
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>{`WHY ${APP_NAME.toUpperCase()} FLAGGED THIS`}</Text>
-            <Text style={styles.infoText}>{alert.evidence}</Text>
-          </View>
-          <View style={[styles.infoCard, { borderColor: `${colors.safe}55`, backgroundColor: colors.safeSoft }]}>
-            <Text style={[styles.infoLabel, { color: colors.safe }]}>ACTION TO TAKE NOW</Text>
-            <Text style={styles.infoText}>{alert.recommendation}</Text>
-          </View>
-          <Text style={styles.disclaimer}>This is an informational warning based on local data, not regulated financial advice.</Text>
-          <FinButton label="Got it" onPress={onClose} style={styles.button} />
+            <View style={[styles.infoCard, { borderColor: `${colors.safe}55`, backgroundColor: colors.safeSoft }]}>
+              <Text style={[styles.infoLabel, { color: colors.safe }]}>ACTION TO TAKE NOW</Text>
+              <Text style={styles.infoText}>{alert.recommendation}</Text>
+            </View>
+            <Text style={styles.disclaimer}>This is an informational warning based on local data, not regulated financial advice.</Text>
+            <FinButton label="Got it" onPress={onClose} style={styles.button} />
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -43,7 +45,8 @@ export function AlertDetailsModal({ alert, onClose }: { alert: FinancialAlert | 
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: '#000000A6', justifyContent: 'flex-end', alignItems: 'center' },
-  sheet: { width: '100%', maxWidth: 680, backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: spacing.xl, paddingBottom: spacing.xxl, borderWidth: 1, borderColor: colors.border },
+  sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, borderColor: colors.border },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl },
   handle: { width: 48, height: 5, borderRadius: 3, backgroundColor: colors.border, alignSelf: 'center', marginBottom: spacing.xl },
   headerRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
   icon: { width: 52, height: 52, borderRadius: radii.lg, alignItems: 'center', justifyContent: 'center' },

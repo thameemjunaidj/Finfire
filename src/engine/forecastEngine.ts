@@ -28,7 +28,7 @@ import {
   Transaction,
   TransactionCategory,
 } from '../types/finance';
-import { addDays, daysInMonth, monthKey, parseLocalDate } from '../utils/dates';
+import { addDays, daysInMonth, monthKey, parseLocalDate, toIsoDate } from '../utils/dates';
 import { formatCurrency, titleCase } from '../utils/format';
 
 /** Categories a person can realistically cut this month. Rent and utilities
@@ -88,7 +88,7 @@ function previousMonthlyAverage(
 
 export function buildForecast(dataset: FinanceDataset): SpendingForecast {
   const { profile, transactions, recurringPayments } = dataset;
-  const asOf = profile.analysisDate ?? new Date().toISOString().slice(0, 10);
+  const asOf = profile.analysisDate ?? toIsoDate(new Date());
 
   const currentKey = monthKey(asOf);
   const totalDays = daysInMonth(asOf);

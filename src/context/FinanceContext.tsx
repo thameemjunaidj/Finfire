@@ -4,19 +4,29 @@ import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEn
 import { buildForecast } from '../engine/forecastEngine';
 import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
 import {
+  addTransactionToState,
+  addRecurringPaymentToState,
+  appendImportedTransactions,
+  createManualTransaction,
+  createRecurringPayment,
+  removeRecurringPaymentFromState,
+  removeTransactionFromState,
+} from '../services/financeState';
+import {
   FinanceDataset,
   FinancialSummary,
   PersistedFinanceState,
   SimulationInput,
   SimulationResult,
-  SpendingForecast,
   Transaction,
+  TransactionImportSummary,
+  RecurringPayment,
+  SpendingForecast,
   UserProfile,
 } from '../types/finance';
 
 interface FinanceContextValue extends FinanceDataset {
   summary: FinancialSummary;
-  /** Forward-looking projection: month-end spend, savings and how to fix them. */
   forecast: SpendingForecast;
   loaded: boolean;
   onboardingComplete: boolean;
@@ -24,7 +34,11 @@ interface FinanceContextValue extends FinanceDataset {
   useDemoAccount: () => void;
   completeCustomSetup: (profile: UserProfile) => void;
   addTransaction: (transaction: Omit<Transaction, 'id' | 'source'>) => void;
-  importTransactions: (transactions: Transaction[]) => void;
+  deleteTransaction: (id: string) => void;
+  importTransactions: (transactions: Transaction[]) => TransactionImportSummary;
+  updateProfile: (profile: UserProfile) => void;
+  addRecurringPayment: (payment: Omit<RecurringPayment, 'id'>) => void;
+  deleteRecurringPayment: (id: string) => void;
   runSimulation: (input: SimulationInput) => SimulationResult;
   setNotificationsEnabled: (value: boolean) => void;
   resetDemo: () => void;
@@ -77,24 +91,16 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       onboardingComplete: true,
       notificationsEnabled: true,
     }),
-    addTransaction: (transaction) => setState((current) => ({
-      ...current,
-      profile: {
-        ...current.profile,
-        availableBalance: Math.max(
-          0,
-          current.profile.availableBalance + (transaction.direction === 'credit' ? transaction.amount : -transaction.amount),
-        ),
-      },
-      transactions: [
-        ...current.transactions,
-        { ...transaction, id: `manual-${Date.now()}`, source: 'manual' },
-      ],
-    })),
-    importTransactions: (transactions) => setState((current) => ({
-      ...current,
-      transactions: [...current.transactions, ...transactions],
-    })),
+    addTransaction: (transaction) => setState((current) => addTransactionToState(current, createManualTransaction(transaction))),
+    deleteTransaction: (id) => setState((current) => removeTransactionFromState(current, id)),
+    importTransactions: (transactions) => {
+      const importSummary = appendImportedTransactions(state, transactions).summary;
+      setState((current) => appendImportedTransactions(current, transactions).state);
+      return importSummary;
+    },
+    updateProfile: (profile) => setState((current) => ({ ...current, profile })),
+    addRecurringPayment: (payment) => setState((current) => addRecurringPaymentToState(current, createRecurringPayment(payment))),
+    deleteRecurringPayment: (id) => setState((current) => removeRecurringPaymentFromState(current, id)),
     runSimulation: (input) => simulatePurchase(dataset, input),
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
     resetDemo: () => setState({ ...demoDataset, onboardingComplete: true, notificationsEnabled: state.notificationsEnabled }),
@@ -102,7 +108,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       await clearFinanceState();
       setState(initialState);
     },
-  }), [dataset, forecast, loaded, state.notificationsEnabled, state.onboardingComplete, summary]);
+  }), [dataset, forecast, loaded, state, summary]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }
