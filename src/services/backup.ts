@@ -57,11 +57,11 @@ async function post(path: string, body: unknown): Promise<any | null> {
 
 /** Send a copy up. Returns when it was stored, or null if it did not work. */
 export async function saveBackup(
-  owner: string,
+  token: string,
   state: PersistedFinanceState,
 ): Promise<number | null> {
   const result = await post('/backup/save', {
-    owner,
+    token,
     payload: JSON.stringify(state),
     transactionCount: state.transactions.length,
   });
@@ -77,9 +77,9 @@ export async function saveBackup(
  * user.
  */
 export async function fetchBackup(
-  owner: string,
+  token: string,
 ): Promise<{ state: PersistedFinanceState; info: BackupInfo } | null> {
-  const result = await post('/backup/load', { owner });
+  const result = await post('/backup/load', { token });
   if (!result || result.empty || typeof result.payload !== 'string') return null;
 
   try {
@@ -99,8 +99,8 @@ export async function fetchBackup(
 }
 
 /** Remove everything held for this account. Returns true when it is gone. */
-export async function deleteBackup(owner: string): Promise<boolean> {
-  const result = await post('/backup/delete', { owner });
+export async function deleteBackup(token: string): Promise<boolean> {
+  const result = await post('/backup/delete', { token });
   return result !== null && typeof result.deleted === 'number';
 }
 

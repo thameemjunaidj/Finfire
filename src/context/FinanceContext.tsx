@@ -61,7 +61,14 @@ interface FinanceContextValue extends FinanceDataset {
   snapshot: () => PersistedFinanceState;
   /** Replace everything with a restored backup. */
   restoreState: (state: PersistedFinanceState) => void;
-  signIn: (identifier: string) => void;
+  /** The session token proving who this device is. */
+  sessionToken?: string;
+  /** False until the confirmation link is tapped. */
+  emailVerified?: boolean;
+  signIn: (email: string, token: string, verified: boolean) => void;
+  markVerified: () => void;
+  /** Acknowledge a warning: it leaves the list and the count drops. */
+  dismissAlert: (id: string) => void;
   signOut: () => void;
   setNotificationsEnabled: (value: boolean) => void;
   resetDemo: () => void;
@@ -130,7 +137,18 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     ),
   }), [dataset]);
 
-  const summary = useMemo(() => calculateFinancialSummary(analysisDataset), [analysisDataset]);
+  const rawSummary = useMemo(() => calculateFinancialSummary(analysisDataset), [analysisDataset]);
+
+  /**
+   * Warnings the person has acknowledged are removed here, once, so that every
+   * place showing them agrees: the list, the tab badge, the Home preview and
+   * the assistant all read the same filtered array.
+   */
+  const summary = useMemo(() => {
+    const dismissed = new Set(state.dismissedAlertIds ?? []);
+    if (dismissed.size === 0) return rawSummary;
+    return { ...rawSummary, alerts: rawSummary.alerts.filter((alert) => !dismissed.has(alert.id)) };
+  }, [rawSummary, state.dismissedAlertIds]);
   const forecast = useMemo(() => buildForecast(analysisDataset), [analysisDataset]);
 
   /** The simulation, and the plain-English version of what it found. */
@@ -151,6 +169,8 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     narrative,
     loaded,
     signedInAs: state.signedInAs,
+    sessionToken: state.sessionToken,
+    emailVerified: state.emailVerified,
     onboardingComplete: state.onboardingComplete,
     notificationsEnabled: state.notificationsEnabled,
     useDemoAccount: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: true, signedInAs: current.signedInAs })),
@@ -161,7 +181,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       onboardingComplete: true,
       notificationsEnabled: true,
       // Resetting the account must not sign anyone out.
-      signedInAs: current.signedInAs,
+      signedInAs: current.signedInAs, sessionToken: current.sessionToken,
     })),
     addTransaction: (transaction) => setState((current) => addTransactionToState(current, createManualTransaction(transaction))),
     deleteTransaction: (id) => setState((current) => removeTransactionFromState(current, id)),
@@ -186,8 +206,14 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     // Keep whoever is signed in — a restore should not log them out of the
     // account they just restored from.
     restoreState: (restored) => setState({ ...restored, signedInAs: state.signedInAs }),
-    signIn: (identifier) => setState((current) => ({ ...current, signedInAs: identifier })),
-    signOut: () => setState((current) => ({ ...current, signedInAs: undefined })),
+    signIn: (email, token, verified) => setState((current) => ({ ...current, signedInAs: email, sessionToken: token, emailVerified: verified })),
+    markVerified: () => setState((current) => ({ ...current, emailVerified: true })),
+    dismissAlert: (id) => setState((current) => (
+      (current.dismissedAlertIds ?? []).includes(id)
+        ? current
+        : { ...current, dismissedAlertIds: [...(current.dismissedAlertIds ?? []), id] }
+    )),
+    signOut: () => setState((current) => ({ ...current, signedInAs: undefined, sessionToken: undefined })),
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
     resetDemo: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: current.notificationsEnabled, signedInAs: current.signedInAs })),
     eraseLocalData: async () => {

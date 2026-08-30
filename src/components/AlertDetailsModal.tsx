@@ -2,11 +2,27 @@ import { Feather } from '@expo/vector-icons';
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
+import { useFinance } from '../context/FinanceContext';
 import { FinancialAlert } from '../types/finance';
 import { plainLabel, severityBackground, severityColor } from '../utils/format';
 import { FinButton } from './FinButton';
 
+/**
+ * "Got it" means got it.
+ *
+ * It used to just close the sheet, so the warning stayed in the list and the
+ * badge kept counting it — which teaches people that acknowledging a warning
+ * does nothing, and then they stop reading them. Now it clears the warning and
+ * the count drops with it.
+ */
 export function AlertDetailsModal({ alert, onClose }: { alert: FinancialAlert | null; onClose: () => void }) {
+  const { dismissAlert } = useFinance();
+
+  const acknowledge = () => {
+    if (alert) dismissAlert(alert.id);
+    onClose();
+  };
+
   if (!alert) return null;
   const accent = severityColor(alert.severity);
   return (
@@ -34,7 +50,7 @@ export function AlertDetailsModal({ alert, onClose }: { alert: FinancialAlert | 
               <Text style={styles.infoText}>{alert.recommendation}</Text>
             </View>
             <Text style={styles.disclaimer}>This is based on the information in the app. It is guidance, not financial advice.</Text>
-            <FinButton label="Got it" onPress={onClose} style={styles.button} />
+            <FinButton label="Got it" onPress={acknowledge} style={styles.button} />
           </ScrollView>
         </Pressable>
       </Pressable>

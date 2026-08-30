@@ -32,7 +32,7 @@ import { PersistedFinanceState } from '../types/finance';
 type Busy = 'none' | 'saving' | 'loading' | 'deleting';
 
 export function BackupCard() {
-  const { signedInAs, snapshot, restoreState, transactions } = useFinance();
+  const { signedInAs, sessionToken, snapshot, restoreState, transactions } = useFinance();
 
   const [busy, setBusy] = useState<Busy>('none');
   const [lastSaved, setLastSaved] = useState<number>(0);
@@ -52,11 +52,12 @@ export function BackupCard() {
   }
 
   const owner = signedInAs ?? '';
+  const token = sessionToken ?? '';
 
   const backUpNow = async () => {
     setBusy('saving');
     setMessage(null);
-    const at = await saveBackup(owner, snapshot());
+    const at = await saveBackup(token, snapshot());
     setBusy('none');
     if (at) {
       setLastSaved(at);
@@ -69,7 +70,7 @@ export function BackupCard() {
   const checkForBackup = async () => {
     setBusy('loading');
     setMessage(null);
-    const result = await fetchBackup(owner);
+    const result = await fetchBackup(token);
     setBusy('none');
     if (!result) {
       setFound(null);
@@ -111,7 +112,7 @@ export function BackupCard() {
           style: 'destructive',
           onPress: async () => {
             setBusy('deleting');
-            const gone = await deleteBackup(owner);
+            const gone = await deleteBackup(token);
             setBusy('none');
             setLastSaved(0);
             setFound(null);

@@ -14,6 +14,29 @@ import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
 export default defineSchema({
+  /** One row per account. The password itself is never here — only a PBKDF2
+   *  hash and the random salt it was made with. */
+  users: defineTable({
+    email: v.string(),
+    salt: v.string(),
+    hash: v.string(),
+    createdAt: v.number(),
+    /** False until they click the link in their email. */
+    verified: v.optional(v.boolean()),
+    /** One-time token in the verification link. Cleared once used, so a link
+     *  cannot be replayed from an old email. */
+    verifyToken: v.optional(v.string()),
+    verifySentAt: v.optional(v.number()),
+  }).index('by_email', ['email']).index('by_verify_token', ['verifyToken']),
+
+  /** One row per signed-in device. The phone holds the token; we hold the
+   *  mapping. Signing out on one phone leaves the others alone. */
+  sessions: defineTable({
+    token: v.string(),
+    email: v.string(),
+    createdAt: v.number(),
+  }).index('by_token', ['token']),
+
   backups: defineTable({
     /** Lower-cased email or phone the person signed in with. */
     owner: v.string(),

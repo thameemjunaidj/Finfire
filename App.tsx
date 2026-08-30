@@ -41,7 +41,7 @@ function FinFireApp() {
     return <View style={styles.loading}><ActivityIndicator color={colors.primary} size="large" /></View>;
   }
   // Sign in, then set up the account, then the app itself.
-  if (!signedInAs) return <SignInScreen onSignedIn={signIn} />;
+  if (!signedInAs) return <SignInScreen onSignedIn={(account) => signIn(account.email, account.token, account.verified)} />;
   if (!onboardingComplete) return <OnboardingScreen />;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>

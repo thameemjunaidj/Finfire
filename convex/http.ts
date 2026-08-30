@@ -141,6 +141,166 @@ const ask = httpAction(async (_ctx, request) => {
 });
 
 
+
+
+/* ------------------------------------------------------------------ */
+/* Sending the verification email                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Resend, called straight from the HTTP layer.
+ *
+ * Mutations cannot reach the network in Convex, which is why signing up is
+ * two steps: the mutation creates the account and hands back a one-time
+ * token, and this sends the link.
+ *
+ * Any one of Brevo, SendGrid or Resend, whichever key is set — checked in
+ * that order. Brevo and SendGrid can verify a single sender ADDRESS, so mail
+ * reaches anybody without owning a domain; Resend needs a verified domain for
+ * that, and otherwise only delivers to your own address.
+ *
+ *   npx convex env set BREVO_API_KEY xkeysib-...
+ *   npx convex env set MAIL_FROM_ADDRESS you@gmail.com
+ *   npx convex env set MAIL_FROM_NAME "Fin Extinguisher"
+ *
+ * If the key is missing the account is still created — email is a nicety, not
+ * a gate. The app shows an unverified badge instead of failing the sign-up.
+ */
+async function sendVerificationEmail(
+  email: string,
+  verifyToken: string,
+  origin: string,
+): Promise<boolean> {
+  const key = process.env.BREVO_API_KEY;
+  if (!key) return false;
+
+  const fromEmail = process.env.MAIL_FROM_EMAIL || '';
+  const fromName = process.env.MAIL_FROM_NAME || 'Fin Extinguisher';
+  if (!fromEmail) return false;
+
+  const link = `${origin}/auth/verify?token=${verifyToken}`;
+
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': key,
+        'Content-Type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: fromName, email: fromEmail },
+        to: [{ email }],
+        subject: 'Confirm your email for Fin Extinguisher',
+        htmlContent: `<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;padding:32px">
+<div style="max-width:480px;margin:0 auto">
+<h1 style="font-size:22px;margin:0 0 16px">Confirm your email</h1>
+<p style="color:#b5b5b5;line-height:1.6;margin:0 0 24px">Tap the button to confirm this address for Fin Extinguisher. It lets you back your spending up and get it back if you change phone.</p>
+<a href="${link}" style="display:inline-block;background:#FF1A0D;color:#000;font-weight:800;text-decoration:none;padding:14px 28px;border-radius:999px">Confirm email</a>
+<p style="color:#7a7a7a;font-size:12px;line-height:1.6;margin:28px 0 0">If you did not create an account, ignore this — nothing will happen.</p>
+</div></body></html>`,
+      }),
+    });
+
+    if (!response.ok) {
+      // Brevo says exactly what is wrong — an unverified sender, a bad key.
+      // Worth having in the logs rather than a silent false.
+      console.error('Brevo refused:', response.status, (await response.text()).slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Brevo unreachable:', String((error as Error).message));
+    return false;
+  }
+}
+
+/** The page someone lands on after tapping the link. */
+function verificationPage(heading: string, detail: string): Response {
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fin Extinguisher</title></head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;padding:24px">
+<div style="max-width:420px;text-align:center">
+<h1 style="font-size:24px;margin:0 0 12px">${heading}</h1>
+<p style="color:#b5b5b5;line-height:1.6;margin:0">${detail}</p>
+</div></body></html>`,
+    { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+  );
+}
+
+const verify = httpAction(async (ctx, request) => {
+  const token = new URL(request.url).searchParams.get('token') ?? '';
+  const result = await ctx.runMutation(api.auth.verifyEmail, { verifyToken: token });
+
+  if (result.error) {
+    return verificationPage('That link did not work', String(result.error));
+  }
+  return verificationPage('Email confirmed', 'You can close this and go back to the app.');
+});
+
+const resendVerification = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    const result = await ctx.runMutation(api.auth.newVerifyToken, { token: String(body.token ?? '') });
+    if (result.error) {
+      return new Response(JSON.stringify({ error: result.error }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+    }
+    const sent = await sendVerificationEmail(result.email!, result.verifyToken!, new URL(request.url).origin);
+    return new Response(JSON.stringify({ sent }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Accounts                                                            */
+/* ------------------------------------------------------------------ */
+
+const signUp = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    const result = await ctx.runMutation(api.auth.signUp, {
+      email: String(body.email ?? ''),
+      password: String(body.password ?? ''),
+    });
+
+    // Account first, email second. A mail failure must not cost someone their
+    // sign-up — they can ask for another link from inside the app.
+    let verificationSent = false;
+    if (!result.error && result.verifyToken) {
+      verificationSent = await sendVerificationEmail(
+        result.email!, result.verifyToken, new URL(request.url).origin,
+      );
+    }
+
+    const { verifyToken, ...safe } = result as Record<string, unknown>;
+    return new Response(JSON.stringify({ ...safe, verificationSent }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+});
+
+const signIn = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    const result = await ctx.runMutation(api.auth.signIn, {
+      email: String(body.email ?? ''),
+      password: String(body.password ?? ''),
+    });
+    return new Response(JSON.stringify(result), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+});
+
+const signOut = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    await ctx.runMutation(api.auth.signOut, { token: String(body.token ?? '') });
+  } catch { /* signing out must never fail loudly */ }
+  return new Response(JSON.stringify({ done: true }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+});
+
 /* ------------------------------------------------------------------ */
 /* Backup — save, restore, delete                                      */
 /* ------------------------------------------------------------------ */
@@ -150,11 +310,25 @@ const ask = httpAction(async (_ctx, request) => {
  * needs no extra dependency and keeps working in Expo Go.
  */
 
+/**
+ * Every backup route now identifies the caller from their session token.
+ *
+ * Before this, /backup/load took an email and returned that person's entire
+ * spending history to anyone who asked. Knowing someone's email address was
+ * the only thing standing in the way.
+ */
+async function ownerFromToken(ctx: any, body: any): Promise<string | null> {
+  const who = await ctx.runQuery(api.auth.whoIs, { token: String(body.token ?? '') });
+  return who?.email ?? null;
+}
+
 const saveBackup = httpAction(async (ctx, request) => {
   try {
     const body = await request.json();
+    const owner = await ownerFromToken(ctx, body);
+    if (!owner) return new Response(JSON.stringify({ error: 'Sign in again.' }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
     const result = await ctx.runMutation(api.backup.save, {
-      owner: String(body.owner ?? ''),
+      owner,
       payload: String(body.payload ?? ''),
       transactionCount: Number(body.transactionCount ?? 0),
     });
@@ -167,7 +341,9 @@ const saveBackup = httpAction(async (ctx, request) => {
 const loadBackup = httpAction(async (ctx, request) => {
   try {
     const body = await request.json();
-    const result = await ctx.runQuery(api.backup.load, { owner: String(body.owner ?? '') });
+    const owner = await ownerFromToken(ctx, body);
+    if (!owner) return new Response(JSON.stringify({ error: 'Sign in again.' }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+    const result = await ctx.runQuery(api.backup.load, { owner });
     return new Response(JSON.stringify(result ?? { empty: true }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
   } catch (error) {
     return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 400, headers: CORS });
@@ -177,7 +353,9 @@ const loadBackup = httpAction(async (ctx, request) => {
 const deleteBackup = httpAction(async (ctx, request) => {
   try {
     const body = await request.json();
-    const result = await ctx.runMutation(api.backup.deleteEverything, { owner: String(body.owner ?? '') });
+    const owner = await ownerFromToken(ctx, body);
+    if (!owner) return new Response(JSON.stringify({ error: 'Sign in again.' }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+    const result = await ctx.runMutation(api.backup.deleteEverything, { owner });
     return new Response(JSON.stringify(result), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
   } catch (error) {
     return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 400, headers: CORS });
@@ -186,13 +364,18 @@ const deleteBackup = httpAction(async (ctx, request) => {
 
 const http = httpRouter();
 http.route({ path: '/ask', method: 'POST', handler: ask });
+http.route({ path: '/auth/signup', method: 'POST', handler: signUp });
+http.route({ path: '/auth/signin', method: 'POST', handler: signIn });
+http.route({ path: '/auth/signout', method: 'POST', handler: signOut });
+http.route({ path: '/auth/verify', method: 'GET', handler: verify });
+http.route({ path: '/auth/resend', method: 'POST', handler: resendVerification });
 http.route({ path: '/backup/save', method: 'POST', handler: saveBackup });
 http.route({ path: '/backup/load', method: 'POST', handler: loadBackup });
 http.route({ path: '/backup/delete', method: 'POST', handler: deleteBackup });
 
 // Browsers ask permission before posting; every route needs to answer.
 const allow = httpAction(async () => new Response(null, { status: 204, headers: CORS }));
-for (const path of ['/ask', '/backup/save', '/backup/load', '/backup/delete']) {
+for (const path of ['/ask', '/auth/signup', '/auth/signin', '/auth/signout', '/auth/resend', '/backup/save', '/backup/load', '/backup/delete']) {
   http.route({ path, method: 'OPTIONS', handler: allow });
 }
 
