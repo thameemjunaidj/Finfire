@@ -23,7 +23,7 @@
  * must never show an error because a language model was unavailable.
  */
 
-import { SpendingForecast, SpendingPrediction, FinancialSummary } from '../types/finance';
+import { SpendingForecast, FinancialSummary } from '../types/finance';
 
 /**
  * Your Convex deployment's HTTP URL, ending in /ask.
@@ -50,14 +50,15 @@ export function isLanguageModelAvailable(): boolean {
 export function buildFigures(
   summary: FinancialSummary,
   forecast: SpendingForecast,
-  prediction: SpendingPrediction,
 ): string {
   const lines = [
     `Money available now: ${Math.round(summary.disposableBalance)}`,
     `Already promised to bills in the next 7 days: ${Math.round(summary.upcomingPaymentsTotal)}`,
-    `Days until money next arrives: ${prediction.horizonDays}`,
-    `Chance of running short before then: ${Math.round(prediction.shortfallProbability * 100)}%`,
-    `Likely still to spend this month: ${prediction.remainingSpend.p50} (between ${prediction.remainingSpend.p10} and ${prediction.remainingSpend.p90})`,
+    `Days until money next arrives: ${summary.daysUntilNextIncome}`,
+    `Risk level: ${summary.riskBand}; heuristic risk score: ${summary.riskScore}/100`,
+    `Expected to last until next income: ${summary.expectedToLastUntilIncome === null ? 'not enough history' : summary.expectedToLastUntilIncome ? 'yes' : 'no'}`,
+    `Estimated balance at next income: ${summary.estimatedBalanceAtNextIncome ?? 'not enough history'}`,
+    `Estimated shortfall days: ${summary.shortfallDays}`,
     `Currently spending per day: ${Math.round(forecast.currentDailyPace)}`,
     `Safe to spend per day: ${Math.round(forecast.safeDailyAllowance)}`,
     `Spent so far this month: ${Math.round(forecast.currentMonthSpending)}`,

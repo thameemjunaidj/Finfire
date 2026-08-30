@@ -83,6 +83,18 @@ export interface FinancialSummary {
    * showed the first to someone with ₹15,000 in the bank.
    */
   hasSpendingHistory: boolean;
+  /** Calendar days until the next allowance/income date. */
+  daysUntilNextIncome: number;
+  /** Null means there is not enough spending history to answer honestly. */
+  expectedToLastUntilIncome: boolean | null;
+  /** How many days before the next income the recent spending pace runs out. */
+  shortfallDays: number;
+  /** Maximum optional daily spend after essential payments are protected. */
+  safeDailySpending: number;
+  /** Deterministic balance estimate at next income; null without spending history. */
+  estimatedBalanceAtNextIncome: number | null;
+  /** Date the protected balance reaches zero at the recent spending pace. */
+  moneyLastingDate: string | null;
   riskScore: number;
   riskBand: RiskBand;
   riskExplanation: string;
@@ -119,6 +131,22 @@ export interface SimulationResult {
   verdict: RiskBand;
   runwayChange: number;
   riskChange: number;
+  decision: 'recommended' | 'caution' | 'not_recommended';
+  createsShortfall: boolean;
+  shortfallChange: number;
+  explanation: string;
+}
+
+export type PlainRiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+
+/** One presentation-ready answer built from the deterministic engine. */
+export interface MoneyOutlook {
+  riskLevel: PlainRiskLevel;
+  headline: string;
+  mainReason: string;
+  recommendedAction: string;
+  spendingPace: number;
+  spendingPaceChange: number | null;
 }
 
 export interface PersistedFinanceState extends FinanceDataset {

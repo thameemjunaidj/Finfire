@@ -38,6 +38,8 @@ function createAlert(alert: FinancialAlert): FinancialAlert {
 export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSummary {
   const { profile, transactions, recurringPayments } = dataset;
   const asOf = profile.analysisDate ?? toIsoDate(new Date());
+  const daysUntilNextIncome = Math.max(0, daysBetween(asOf, profile.nextIncomeDate));
+  const incomeHorizon = Math.max(1, daysUntilNextIncome);
   const currentKey = monthKey(asOf);
   const elapsedDays = Math.max(1, parseLocalDate(asOf).getDate());
   const debitTransactions = transactions.filter((item) => item.direction === 'debit' && item.date <= asOf);
@@ -109,6 +111,12 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
 
     return {
       hasSpendingHistory: false,
+      daysUntilNextIncome,
+      expectedToLastUntilIncome: null,
+      shortfallDays: 0,
+      safeDailySpending: balance / incomeHorizon,
+      estimatedBalanceAtNextIncome: null,
+      moneyLastingDate: null,
       riskScore: noMoney ? 30 : 0,
       riskBand: noMoney ? 'Caution' : 'Safe',
       riskExplanation: noMoney
@@ -303,7 +311,7 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
     (item) => item.date >= recentStart && item.date <= asOf && !item.essential && item.source !== 'simulation',
   );
   const recentDailyDiscretionarySpend = recentDiscretionary.reduce((sum, item) => sum + item.amount, 0) / 14;
-  const daysToIncome = Math.max(1, daysBetween(asOf, profile.nextIncomeDate));
+  const daysToIncome = incomeHorizon;
   const runwayDays = profile.availableBalance <= 0
     ? 0
     : recentDailyDiscretionarySpend > 0
@@ -369,9 +377,24 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
     month: monthLabel(key),
     amount,
   }));
+  const safeDailySpending = protectedBalance / daysToIncome;
+  const estimatedBalanceAtNextIncome = protectedBalance - (recentDailyDiscretionarySpend * daysUntilNextIncome);
+  const expectedToLastUntilIncome = estimatedBalanceAtNextIncome >= 0;
+  const shortfallDays = expectedToLastUntilIncome
+    ? 0
+    : Math.max(1, daysUntilNextIncome - Math.floor(runwayDays));
+  const moneyLastingDate = recentDailyDiscretionarySpend > 0
+    ? addDays(asOf, Math.max(0, Math.floor(runwayDays)))
+    : null;
 
   return {
     hasSpendingHistory: true,
+    daysUntilNextIncome,
+    expectedToLastUntilIncome,
+    shortfallDays,
+    safeDailySpending,
+    estimatedBalanceAtNextIncome,
+    moneyLastingDate,
     riskScore,
     riskBand,
     riskExplanation,
@@ -420,6 +443,23 @@ export function simulatePurchase(dataset: FinanceDataset, input: SimulationInput
     transactions: [...dataset.transactions, transaction],
   };
   const after = calculateFinancialSummary(afterDataset);
+  const createsShortfall = before.expectedToLastUntilIncome === true
+    && after.expectedToLastUntilIncome === false;
+  const shortfallChange = after.shortfallDays - before.shortfallDays;
+  const decision = createsShortfall || shortfallChange > 0
+    ? 'not_recommended'
+    : after.riskScore > before.riskScore || after.runwayDays < before.runwayDays
+      ? 'caution'
+      : 'recommended';
+  const explanation = createsShortfall
+    ? `This purchase creates a ${after.shortfallDays}-day shortfall before your next income.`
+    : shortfallChange > 0
+      ? `This purchase makes your existing shortfall ${shortfallChange} ${shortfallChange === 1 ? 'day' : 'days'} longer.`
+      : after.expectedToLastUntilIncome === null
+        ? 'Add a few days of spending before relying on a money-lasting estimate.'
+        : after.expectedToLastUntilIncome
+          ? 'Your money is still expected to last until your next income.'
+          : `Your money was already expected to run short; this purchase does not add another full day to that estimate.`;
   return {
     before,
     after,
@@ -427,5 +467,9 @@ export function simulatePurchase(dataset: FinanceDataset, input: SimulationInput
     verdict: after.riskBand,
     runwayChange: after.runwayDays - before.runwayDays,
     riskChange: after.riskScore - before.riskScore,
+    decision,
+    createsShortfall,
+    shortfallChange,
+    explanation,
   };
 }

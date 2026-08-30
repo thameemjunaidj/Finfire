@@ -2,6 +2,7 @@ import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo
 import { AppState } from 'react-native';
 import { demoDataset } from '../data/demoData';
 import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEngine';
+import { buildMoneyOutlook } from '../engine/decisionEngine';
 import { buildForecast } from '../engine/forecastEngine';
 import { mergeRecurringPayments } from '../engine/recurringDetection';
 import { predictOutcome } from '../engine/predictionEngine';
@@ -23,6 +24,7 @@ import {
   FinancialSummary,
   PersistedFinanceState,
   LearnedModel,
+  MoneyOutlook,
   PredictionNarrative,
   SimulationInput,
   SimulationResult,
@@ -37,6 +39,7 @@ import {
 
 interface FinanceContextValue extends FinanceDataset {
   summary: FinancialSummary;
+  outlook: MoneyOutlook;
   forecast: SpendingForecast;
   /** Simulated outcome: how likely the money runs out, and the likely range. */
   prediction: SpendingPrediction;
@@ -180,6 +183,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     return { ...rawSummary, alerts: rawSummary.alerts.filter((alert) => !dismissed.has(alert.id)) };
   }, [rawSummary, state.dismissedAlertIds]);
   const forecast = useMemo(() => buildForecast(analysisDataset), [analysisDataset]);
+  const outlook = useMemo(() => buildMoneyOutlook(summary, forecast), [summary, forecast]);
 
   /** The simulation, and the plain-English version of what it found. */
   const prediction = useMemo(() => predictOutcome(analysisDataset), [analysisDataset]);
@@ -193,6 +197,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
   const value = useMemo<FinanceContextValue>(() => ({
     ...analysisDataset,
     summary,
+    outlook,
     forecast,
     prediction,
     learned,
@@ -218,9 +223,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       onboardingComplete: true,
       notificationsEnabled: true,
       // Resetting the account must not sign anyone out.
-      signedInAs: current.signedInAs,
-      sessionToken: current.sessionToken,
-      emailVerified: current.emailVerified,
+      signedInAs: current.signedInAs, sessionToken: current.sessionToken, emailVerified: current.emailVerified,
     })),
     addTransaction: (transaction) => setState((current) => addTransactionToState(current, createManualTransaction(transaction))),
     deleteTransaction: (id) => setState((current) => removeTransactionFromState(current, id)),
@@ -271,7 +274,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       await clearFinanceState();
       setState(initialState);
     },
-  }), [analysisDataset, forecast, learned, loaded, narrative, prediction, state, summary]);
+  }), [analysisDataset, forecast, learned, loaded, narrative, outlook, prediction, state, summary]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

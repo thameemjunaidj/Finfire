@@ -37,14 +37,14 @@ function clockTime(): string {
   return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-export function AssistantScreen() {
-  const { profile, summary, forecast, prediction, learned, transactions } = useFinance();
+export function AssistantScreen({ onBack }: { onBack?: () => void }) {
+  const { profile, summary, forecast, prediction, learned, transactions, recurringPayments } = useFinance();
 
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       from: 'app',
-      text: `Hello ${profile.name}. Ask me anything about your money — where it goes, whether it will last, or where to cut.`,
+      text: `Hello ${profile.name}. Ask about a spending decision or why your money may not last. My answers use FinFire's calculated results.`,
       time: clockTime(),
     },
   ]);
@@ -57,7 +57,7 @@ export function AssistantScreen() {
     if (!trimmed) return;
 
     const reply = answerQuestion(trimmed, {
-      profile, summary, forecast, prediction, learned, transactions,
+      profile, summary, forecast, prediction, learned, transactions, recurringPayments,
     });
 
     const answerId = `app-${Date.now()}`;
@@ -83,7 +83,7 @@ export function AssistantScreen() {
       message.id === answerId ? { ...message, text: 'Thinking…' } : message
     )));
 
-    const better = await askLanguageModel(trimmed, buildFigures(summary, forecast, prediction));
+    const better = await askLanguageModel(trimmed, buildFigures(summary, forecast));
 
     // A null answer is normal — no key, no signal, quota gone. Put the
     // on-device reply back and say nothing about it.
@@ -91,7 +91,7 @@ export function AssistantScreen() {
       message.id === answerId ? { ...message, text: better ?? reply.text } : message
     )));
     setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), 60);
-  }, [profile, summary, forecast, prediction, learned, transactions]);
+  }, [profile, summary, forecast, prediction, learned, transactions, recurringPayments]);
 
   return (
     <KeyboardAvoidingView
@@ -100,7 +100,10 @@ export function AssistantScreen() {
       keyboardVerticalOffset={12}
     >
       <View style={styles.header}>
-        <Text style={styles.title}>Ask</Text>
+        <View style={styles.titleRow}>
+          <View style={styles.titleCopy}><Text style={styles.title}>Money decisions</Text><Text style={styles.subtitle}>Plain explanations from your FinFire results</Text></View>
+          {onBack ? <Pressable accessibilityRole="button" accessibilityLabel="Back to insights" onPress={onBack} style={styles.backButton}><Feather name="arrow-left" size={19} color={colors.textSecondary} /></Pressable> : null}
+        </View>
         <View style={styles.offlineChip}>
           <Feather name="wifi-off" size={11} color={colors.primary} />
           <Text style={styles.offlineText}>
@@ -154,7 +157,7 @@ export function AssistantScreen() {
           style={styles.input}
           value={draft}
           onChangeText={setDraft}
-          placeholder="Ask about your money"
+          placeholder="Ask about a money decision"
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"
           onSubmitEditing={() => { void ask(draft); }}
@@ -177,7 +180,11 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
 
   header: { paddingTop: spacing.xl, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
+  titleCopy: { flex: 1 },
   title: { color: colors.text, fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
+  subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 4 },
+  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   offlineChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
     marginTop: 6, paddingVertical: 4, paddingHorizontal: 9,

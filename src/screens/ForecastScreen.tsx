@@ -7,7 +7,7 @@
 
 import { Feather } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MetricCard } from '../components/MetricCard';
 import { Screen, SectionTitle } from '../components/Screen';
@@ -74,8 +74,16 @@ function ActionCard({ action, index }: { action: SavingsAction; index: number })
   );
 }
 
-export function ForecastScreen() {
-  const { forecast, prediction, narrative, learned, profile, transactions } = useFinance();
+function BackButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel="Back to insights" onPress={onPress} style={styles.backButton}>
+      <Feather name="arrow-left" size={19} color={colors.textSecondary} />
+    </Pressable>
+  );
+}
+
+export function ForecastScreen({ onBack }: { onBack?: () => void }) {
+  const { forecast, prediction, learned, profile, transactions, summary, outlook } = useFinance();
   /** The sample account is the only one whose figures are not the person's own. */
   const isSample = profile.id.startsWith('demo-');
   const widest = Math.max(
@@ -84,16 +92,15 @@ export function ForecastScreen() {
   );
 
   const savingsShort = !forecast.onTrack;
-  const chanceOutOf100 = Math.round(prediction.shortfallProbability * 100);
-  const risky = prediction.shortfallProbability >= 0.2;
+  const risky = summary.riskBand === 'High Risk' || summary.riskBand === 'Critical';
 
   if (transactions.length === 0) {
     return (
-      <Screen title="Your month ahead" subtitle="Nothing to look ahead at yet.">
+      <Screen title="Your month ahead" subtitle="Nothing to look ahead at yet." action={onBack ? <BackButton onPress={onBack} /> : undefined}>
         <View style={styles.emptyCard}>
           <Text style={styles.emptyText}>
             Add a few days of spending on the Spending tab and this fills in: where the month is
-            heading, the chance of running short, and what to cut to change it.
+            heading, whether your money is on track to last, and what to change.
             {'\n\n'}A week is enough to be useful. A month is enough to be accurate.
           </Text>
         </View>
@@ -105,26 +112,15 @@ export function ForecastScreen() {
     <Screen
       title="Your month ahead"
       subtitle={`${forecast.daysRemaining} days left this month. Here is what may happen if nothing changes.`}
+      action={onBack ? <BackButton onPress={onBack} /> : undefined}
     >
       {/* ---- The prediction, in words first ---- */}
       <View style={[styles.predictionCard, risky && styles.predictionCardAlert]}>
         <Text style={[styles.predictionHeadline, risky && styles.predictionHeadlineAlert]}>
-          {narrative.headline}
+          {outlook.headline}
         </Text>
-
-        {/* A bar rather than a bare percentage: "45%" means little on its own,
-            but a bar that is nearly half full is understood instantly. */}
-        <View style={styles.chanceRow}>
-          <View style={styles.chanceTrack}>
-            <View style={[styles.chanceFill, { width: `${Math.max(2, chanceOutOf100)}%` }]} />
-          </View>
-          <Text style={styles.chanceValue}>{chanceOutOf100}%</Text>
-        </View>
-        <Text style={styles.chanceCaption}>
-          chance of running short before your next money arrives
-        </Text>
-
-        <Text style={styles.predictionBody}>{narrative.body}</Text>
+        <Text style={styles.chanceCaption}>Risk score {summary.riskScore}/100 · {outlook.riskLevel}</Text>
+        <Text style={styles.predictionBody}>{outlook.mainReason}{'\n\n'}{outlook.recommendedAction}</Text>
 
         <View style={styles.methodBox}>
           {/* This said "sample spending" to everyone, including people looking
@@ -258,6 +254,7 @@ export function ForecastScreen() {
 }
 
 const styles = StyleSheet.create({
+  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   learnedCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,
