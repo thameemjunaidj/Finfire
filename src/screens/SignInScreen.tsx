@@ -18,9 +18,10 @@
  */
 
 import { Feather } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -38,6 +39,7 @@ import {
   isAuthAvailable,
   looksLikeEmail,
   passwordProblem,
+  refreshVerification,
   resendVerification,
   signInToAccount,
 } from '../services/auth';
@@ -59,6 +61,43 @@ export function SignInScreen({ onSignedIn }: { onSignedIn: (account: Account) =>
   /** Held back until they either confirm or choose to carry on. */
   const [pending, setPending] = useState<Account | null>(null);
   const [emailWentOut, setEmailWentOut] = useState(false);
+  const [checkingVerification, setCheckingVerification] = useState(false);
+
+  useEffect(() => {
+    if (stage !== 'sent' || !pending || pending.verified) return undefined;
+
+    let mounted = true;
+    let checking = false;
+
+    const checkNow = async () => {
+      if (checking) return;
+      checking = true;
+      if (mounted) setCheckingVerification(true);
+      const result = await refreshVerification(pending.token);
+      checking = false;
+      if (!mounted) return;
+      setCheckingVerification(false);
+      if (result.verified) {
+        setNote('Email confirmed. Opening FinFire…');
+        onSignedIn({ ...pending, verified: true });
+      }
+    };
+
+    // Check immediately, whenever the browser hands control back to the app,
+    // and occasionally while this screen remains visible (important on web,
+    // where opening the link in another tab may not change AppState).
+    void checkNow();
+    const appState = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void checkNow();
+    });
+    const timer = setInterval(() => { void checkNow(); }, 5000);
+
+    return () => {
+      mounted = false;
+      appState.remove();
+      clearInterval(timer);
+    };
+  }, [onSignedIn, pending, stage]);
 
   const clearError = () => { if (error) setError(null); };
 
@@ -143,6 +182,13 @@ export function SignInScreen({ onSignedIn }: { onSignedIn: (account: Account) =>
           </Text>
 
           {note ? <Text style={styles.note}>{note}</Text> : null}
+
+          {checkingVerification ? (
+            <View style={styles.checkingRow}>
+              <ActivityIndicator color={colors.primary} size="small" />
+              <Text style={styles.checkingText}>Checking for confirmation…</Text>
+            </View>
+          ) : null}
 
           <Pressable
             accessibilityRole="button"
@@ -316,6 +362,8 @@ const styles = StyleSheet.create({
     textAlign: 'center', paddingHorizontal: spacing.md, marginBottom: spacing.sm,
   },
   note: { color: colors.primary, fontSize: 12.5, fontWeight: '700', textAlign: 'center' },
+  checkingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  checkingText: { color: colors.textSecondary, fontSize: 12 },
 
   input: {
     backgroundColor: '#FAF6F4',

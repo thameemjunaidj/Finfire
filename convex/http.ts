@@ -301,6 +301,20 @@ const signOut = httpAction(async (ctx, request) => {
   return new Response(JSON.stringify({ done: true }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
 });
 
+/** Let a signed-in app notice that its browser verification just completed. */
+const verificationStatus = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    const result = await ctx.runQuery(api.auth.isVerified, { token: String(body.token ?? '') });
+    if (!result) {
+      return new Response(JSON.stringify({ error: 'Sign in again.' }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify(result), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+});
+
 /* ------------------------------------------------------------------ */
 /* Backup — save, restore, delete                                      */
 /* ------------------------------------------------------------------ */
@@ -367,6 +381,7 @@ http.route({ path: '/ask', method: 'POST', handler: ask });
 http.route({ path: '/auth/signup', method: 'POST', handler: signUp });
 http.route({ path: '/auth/signin', method: 'POST', handler: signIn });
 http.route({ path: '/auth/signout', method: 'POST', handler: signOut });
+http.route({ path: '/auth/status', method: 'POST', handler: verificationStatus });
 http.route({ path: '/auth/verify', method: 'GET', handler: verify });
 http.route({ path: '/auth/resend', method: 'POST', handler: resendVerification });
 http.route({ path: '/backup/save', method: 'POST', handler: saveBackup });
@@ -375,7 +390,7 @@ http.route({ path: '/backup/delete', method: 'POST', handler: deleteBackup });
 
 // Browsers ask permission before posting; every route needs to answer.
 const allow = httpAction(async () => new Response(null, { status: 204, headers: CORS }));
-for (const path of ['/ask', '/auth/signup', '/auth/signin', '/auth/signout', '/auth/resend', '/backup/save', '/backup/load', '/backup/delete']) {
+for (const path of ['/ask', '/auth/signup', '/auth/signin', '/auth/signout', '/auth/status', '/auth/resend', '/backup/save', '/backup/load', '/backup/delete']) {
   http.route({ path, method: 'OPTIONS', handler: allow });
 }
 

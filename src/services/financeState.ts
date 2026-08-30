@@ -149,5 +149,11 @@ export function sanitizePersistedState(value: unknown): PersistedFinanceState | 
     recurringPayments: state.recurringPayments.filter(isRecurringPayment),
     onboardingComplete: state.onboardingComplete === true,
     notificationsEnabled: state.notificationsEnabled !== false,
+    signedInAs: typeof state.signedInAs === 'string' ? state.signedInAs : undefined,
+    sessionToken: typeof state.sessionToken === 'string' ? state.sessionToken : undefined,
+    emailVerified: state.emailVerified === true,
+    dismissedAlertIds: Array.isArray(state.dismissedAlertIds)
+      ? state.dismissedAlertIds.filter((id): id is string => typeof id === 'string')
+      : undefined,
   };
 }
