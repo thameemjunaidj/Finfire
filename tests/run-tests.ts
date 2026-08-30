@@ -1,5 +1,6 @@
 import { demoDataset } from '../src/data/demoData';
 import { calculateFinancialSummary, getRiskBand, simulatePurchase } from '../src/engine/financeEngine';
+import { buildMoneyOutlook } from '../src/engine/decisionEngine';
 import { buildForecast } from '../src/engine/forecastEngine';
 import { categorise, trainCategoryModel } from '../src/engine/categoriser';
 import { predictOutcome } from '../src/engine/predictionEngine';
@@ -41,6 +42,11 @@ assert(summary.riskScore >= 0 && summary.riskScore <= 100, 'clamps risk score to
 assert(summary.upcomingPaymentsCount === 3, 'counts three upcoming payments');
 approximately(summary.upcomingPaymentsTotal, 657, 0, 'upcoming total');
 approximately(summary.runwayDays, 9, 0, 'demo runway');
+assert(summary.daysUntilNextIncome === 11, 'counts days until the demo allowance');
+assert(summary.expectedToLastUntilIncome === false, 'detects that the demo money will not last');
+assert(summary.shortfallDays === 2, 'derives a two-day demo shortfall from runway and allowance date');
+assert(summary.safeDailySpending > 0, 'derives a safe daily spend from protected balance');
+assert(summary.estimatedBalanceAtNextIncome !== null && summary.estimatedBalanceAtNextIncome < 0, 'derives a negative balance at the next allowance');
 
 // The electricity bill is due on the 27th, so it is not a transaction yet.
 // This asserts the app warns BEFORE the charge lands, which is the whole point.
@@ -50,6 +56,9 @@ assert(
 );
 
 const forecast = buildForecast(demoDataset);
+const outlook = buildMoneyOutlook(summary, forecast);
+assert(outlook.headline.includes('run short'), 'plain outlook leads with the shortage answer');
+assert(outlook.mainReason.length > 20, 'plain outlook explains the main reason');
 assert(forecast.asOf === demoDataset.profile.analysisDate, 'forecast uses the reproducible analysis date');
 assert(forecast.categories.length > 0, 'forecast reports category projections');
 assert(forecast.projectedMonthEndSpending >= forecast.currentMonthSpending, 'month-end forecast never loses recorded spending');
@@ -64,6 +73,8 @@ const simulation = simulatePurchase(demoDataset, {
 });
 assert(simulation.after.riskScore >= simulation.before.riskScore, 'risky purchase does not reduce risk');
 assert(simulation.after.runwayDays < simulation.before.runwayDays, 'a ₹600 purchase reduces runway');
+assert(simulation.decision === 'not_recommended', 'purchase decision clearly warns when the shortfall grows');
+assert(simulation.shortfallChange > 0, 'purchase comparison reports added shortfall days');
 assert(demoDataset.transactions.every((item) => item.source !== 'simulation'), 'simulation never mutates real data');
 
 const safeDataset: FinanceDataset = {

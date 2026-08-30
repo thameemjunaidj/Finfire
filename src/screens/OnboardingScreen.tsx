@@ -63,13 +63,13 @@ export function OnboardingScreen() {
           </>
         ) : (
           <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Tell us about your money</Text>
-            <Text style={styles.formHelper}>You can add spending or import a bank CSV file next.</Text>
+            <Text style={styles.formTitle}>Set up your student money cycle</Text>
+            <Text style={styles.formHelper}>Use allowance, scholarship or part-time income—whichever arrives next.</Text>
             <FormField label="Your name" value={name} onChangeText={setName} placeholder="e.g. Thameem" />
-            <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="48000" />
-            <FormField label="Money currently available (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
-            <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder={addDays(today, 14)} />
-            <FormField label="Essential bills each month (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
+            <FormField label="Monthly allowance or income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="10000" />
+            <FormField label="Money available now (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="3600" />
+            <FormField label="Next allowance or income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder={addDays(today, 14)} />
+            <FormField label="Essential monthly costs (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="Hostel, transport, bills, subscriptions" />
             <FinButton label="Continue" icon="arrow-right" disabled={!canContinue} onPress={submit} />
             <FinButton label="Back" variant="ghost" onPress={() => setCustom(false)} style={styles.secondaryButton} />
           </View>

@@ -20,7 +20,7 @@ import { FinancialAlert } from '../types/finance';
  * folded away behind a single line. Same information, one decision to make
  * instead of ten.
  */
-export function AlertsScreen() {
+export function AlertsScreen({ onBack }: { onBack?: () => void }) {
   const { summary } = useFinance();
   const [selected, setSelected] = useState<FinancialAlert | null>(null);
   const [showLower, setShowLower] = useState(false);
@@ -41,6 +41,11 @@ export function AlertsScreen() {
             ? `${urgent.length} ${urgent.length === 1 ? 'thing needs' : 'things need'} attention${criticalCount ? `, ${criticalCount} urgently` : ''}.`
             : 'Nothing needs attention right now.'
         }
+        action={onBack ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Back to insights" onPress={onBack} style={styles.backButton}>
+            <Feather name="arrow-left" size={19} color={colors.textSecondary} />
+          </Pressable>
+        ) : undefined}
       >
         {urgent.length > 0 ? (
           <View>
@@ -93,6 +98,7 @@ export function AlertsScreen() {
 }
 
 const styles = StyleSheet.create({
+  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   clear: {
     alignItems: 'center',
     backgroundColor: colors.safeSoft,

@@ -10,6 +10,7 @@ import { AlertsScreen } from './src/screens/AlertsScreen';
 import { AssistantScreen } from './src/screens/AssistantScreen';
 import { ForecastScreen } from './src/screens/ForecastScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
+import { InsightPage, InsightsScreen } from './src/screens/InsightsScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { SignInScreen } from './src/screens/SignInScreen';
 import { SimulatorScreen } from './src/screens/SimulatorScreen';
@@ -33,6 +34,7 @@ LogBox.ignoreLogs([
 function FinFireApp() {
   const { loaded, onboardingComplete, signedInAs, signIn, summary } = useFinance();
   const [tab, setTab] = useState<AppTab>('home');
+  const [insightPage, setInsightPage] = useState<InsightPage>('overview');
   const [settingsVisible, setSettingsVisible] = useState(false);
   useEffect(() => {
     void initializeNotifications();
@@ -46,13 +48,14 @@ function FinFireApp() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <View style={styles.app}>
-        {tab === 'home' ? <HomeScreen onViewAlerts={() => setTab('alerts')} onOpenSettings={() => setSettingsVisible(true)} /> : null}
-        {tab === 'forecast' ? <ForecastScreen /> : null}
-        {tab === 'alerts' ? <AlertsScreen /> : null}
+        {tab === 'home' ? <HomeScreen onExplainRisk={() => { setInsightPage('overview'); setTab('insights'); }} onOpenSimulator={() => setTab('simulator')} onOpenTransactions={() => setTab('transactions')} onOpenSettings={() => setSettingsVisible(true)} /> : null}
         {tab === 'transactions' ? <TransactionsScreen /> : null}
         {tab === 'simulator' ? <SimulatorScreen /> : null}
-        {tab === 'assistant' ? <AssistantScreen /> : null}
-        <BottomTabs active={tab} onChange={setTab} alertCount={summary.alerts.length} />
+        {tab === 'insights' && insightPage === 'overview' ? <InsightsScreen onOpen={setInsightPage} /> : null}
+        {tab === 'insights' && insightPage === 'forecast' ? <ForecastScreen onBack={() => setInsightPage('overview')} /> : null}
+        {tab === 'insights' && insightPage === 'alerts' ? <AlertsScreen onBack={() => setInsightPage('overview')} /> : null}
+        {tab === 'insights' && insightPage === 'assistant' ? <AssistantScreen onBack={() => setInsightPage('overview')} /> : null}
+        <BottomTabs active={tab} onChange={(next) => { if (next === 'insights') setInsightPage('overview'); setTab(next); }} alertCount={summary.alerts.length} />
         <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
       </View>
     </SafeAreaView>

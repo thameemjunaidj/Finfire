@@ -6,8 +6,8 @@
  *   predictionEngine.ts  produces the numbers   (runs on the phone, always)
  *   this file            produces the words     (on-device, or a language model)
  *
- * Keeping them apart is the whole design. The model that decides "78% chance
- * of running out" never asks a language model for a number, so the app cannot
+ * Keeping them apart is the whole design. The prediction engine never asks a
+ * language model for a number, so the app cannot
  * hallucinate someone's finances. The language model, when it is switched on,
  * only rephrases numbers that were already computed.
  *
@@ -55,14 +55,6 @@ export function isLanguageModelEnabled(): boolean {
 /* Layer 1 — the on-device writer (always available)                   */
 /* ------------------------------------------------------------------ */
 
-function describeChance(probability: number): string {
-  if (probability >= 0.85) return 'almost certain';
-  if (probability >= 0.6) return 'likely';
-  if (probability >= 0.35) return 'possible';
-  if (probability >= 0.15) return 'not very likely';
-  return 'very unlikely';
-}
-
 /**
  * Writes the prediction in plain words.
  *
@@ -76,16 +68,12 @@ export function explainOnDevice(
   forecast: SpendingForecast,
   profile: UserProfile,
 ): PredictionNarrative {
-  const chancePercent = Math.round(prediction.shortfallProbability * 100);
-  const inTenMonths = Math.max(1, Math.round(prediction.shortfallProbability * 10));
-
-  if (prediction.shortfallProbability >= 0.2 && prediction.likelyShortfallDate) {
+  if (prediction.likelyShortfallDate) {
     return {
       source: 'on-device',
       headline: `Your money may run out around ${formatDate(prediction.likelyShortfallDate)}`,
       body:
-        `If the next few days go like your normal days, you run out of money before your next `
-        + `pocket money. We checked this ${inTenMonths} times out of 10.\n\n`
+        `Some of the spending ranges we checked run short before your next pocket money.\n\n`
         + `You still have about ${formatCurrency(prediction.remainingSpend.p50)} to spend. `
         + `Spend ${formatCurrency(forecast.safeDailyAllowance)} a day instead of ${formatCurrency(forecast.currentDailyPace)} and the money lasts.`,
     };
@@ -95,9 +83,7 @@ export function explainOnDevice(
     source: 'on-device',
     headline: 'Your money should last until next time',
     body:
-      `Running out is ${describeChance(prediction.shortfallProbability)}. It happened only `
-      + `${chancePercent} times out of 100 when we checked.\n\n`
-      + `${profile.name}, you should be left with about ${formatCurrency(prediction.monthEndBalance.p50)}. `
+      `${profile.name}, the middle of the tested range leaves about ${formatCurrency(prediction.monthEndBalance.p50)}. `
       + `Keep your spending near ${formatCurrency(forecast.safeDailyAllowance)} a day.`,
   };
 }
@@ -134,7 +120,6 @@ export function buildModelSummary(
   forecast: SpendingForecast,
 ): string {
   return [
-    `Chance of running out before next income: ${Math.round(prediction.shortfallProbability * 100)}%`,
     `Most likely date of running short: ${prediction.likelyShortfallDate ?? 'none'}`,
     `Spending still to come: ${prediction.remainingSpend.p50} (range ${prediction.remainingSpend.p10}–${prediction.remainingSpend.p90})`,
     `Safe daily amount: ${forecast.safeDailyAllowance}`,

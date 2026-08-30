@@ -3,15 +3,13 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
 
-export type AppTab = 'home' | 'forecast' | 'alerts' | 'transactions' | 'simulator' | 'assistant';
+export type AppTab = 'home' | 'transactions' | 'simulator' | 'insights';
 
 const tabs: Array<{ id: AppTab; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { id: 'home', label: 'Home', icon: 'home' },
-  { id: 'forecast', label: 'Future', icon: 'trending-up' },
-  { id: 'alerts', label: 'Warnings', icon: 'alert-triangle' },
   { id: 'transactions', label: 'Spending', icon: 'list' },
-  { id: 'simulator', label: 'Try It', icon: 'sliders' },
-  { id: 'assistant', label: 'Ask', icon: 'message-circle' },
+  { id: 'simulator', label: 'Can I afford?', icon: 'shopping-bag' },
+  { id: 'insights', label: 'Insights', icon: 'compass' },
 ];
 
 export function BottomTabs({ active, onChange, alertCount }: { active: AppTab; onChange: (tab: AppTab) => void; alertCount: number }) {
@@ -25,13 +23,13 @@ export function BottomTabs({ active, onChange, alertCount }: { active: AppTab; o
               key={tab.id}
               onPress={() => onChange(tab.id)}
               accessibilityRole="tab"
-              accessibilityLabel={tab.id === 'alerts' && alertCount > 0 ? `${tab.label}, ${alertCount} active warnings` : tab.label}
+              accessibilityLabel={tab.id === 'insights' && alertCount > 0 ? `${tab.label}, ${alertCount} active warnings` : tab.label}
               accessibilityState={{ selected }}
               style={styles.tab}
             >
               <View style={[styles.iconWrap, selected && styles.activeIcon]}>
                 <Feather name={tab.icon} size={19} color={selected ? colors.primary : colors.textMuted} />
-                {tab.id === 'alerts' && alertCount > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{Math.min(alertCount, 9)}</Text></View> : null}
+                {tab.id === 'insights' && alertCount > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{Math.min(alertCount, 9)}</Text></View> : null}
               </View>
               <Text style={[styles.label, selected && styles.activeLabel]} numberOfLines={1}>{tab.label}</Text>
             </Pressable>

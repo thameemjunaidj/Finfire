@@ -20,13 +20,16 @@
 import {
   FinancialSummary,
   LearnedModel,
+  RecurringPayment,
   SpendingForecast,
   SpendingPrediction,
   Transaction,
   TransactionCategory,
   UserProfile,
 } from '../types/finance';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency } from '../utils/format';
+import { simulatePurchase } from './financeEngine';
+import { toIsoDate } from '../utils/dates';
 
 export interface AssistantContext {
   profile: UserProfile;
@@ -35,6 +38,7 @@ export interface AssistantContext {
   prediction: SpendingPrediction;
   learned: LearnedModel;
   transactions: Transaction[];
+  recurringPayments: RecurringPayment[];
 }
 
 export interface AssistantReply {
@@ -49,10 +53,10 @@ export interface AssistantReply {
 
 /** The questions the app opens with. */
 export const STARTER_QUESTIONS = [
-  'Where can I save money?',
-  'Where is my money going?',
-  'Will my money last?',
-  'Is anything unusual?',
+  'Why did my risk increase?',
+  'Can I safely spend ₹800 today?',
+  'What is hurting my budget most?',
+  'How much can I spend per day until my next allowance?',
 ];
 
 /* ------------------------------------------------------------------ */
@@ -61,14 +65,15 @@ export const STARTER_QUESTIONS = [
 
 type Intent =
   | 'save' | 'breakdown' | 'lasting' | 'unusual' | 'subscriptions'
-  | 'afford' | 'learned' | 'biggest' | 'help' | 'unknown';
+  | 'afford' | 'learned' | 'biggest' | 'daily_limit' | 'help' | 'unknown';
 
 const PATTERNS: Array<[Intent, RegExp]> = [
   ['save', /\b(save|saving|cut|reduce|less|spend less|budget|tips?|advice)\b/i],
   ['afford', /\b(afford|should i (buy|get)|can i (buy|spend|get)|worth it)\b/i],
+  ['daily_limit', /\b(how much|daily|per day|each day)\b.*\b(spend|allowance|limit|safe)\b|\b(spend|allowance|limit|safe)\b.*\b(per day|each day|daily)\b/i],
   ['lasting', /\b(last|run out|survive|manage|enough|until|payday|end of (the )?month)\b/i],
   ['breakdown', /\b(where|what (did|do) i spend|going|gone|breakdown|categor|most)\b/i],
-  ['unusual', /\b(unusual|odd|strange|weird|wrong|suspicious|check|warning|alert|problem)\b/i],
+  ['unusual', /\b(unusual|odd|strange|weird|wrong|suspicious|check|warning|alert|problem|risk|increase)\b/i],
   ['subscriptions', /\b(subscription|netflix|spotify|recurring|bill|recharge|due|upcoming)\b/i],
   ['learned', /\b(learn|notice|pattern|habit|about me|know about)\b/i],
   ['biggest', /\b(biggest|largest|highest|most expensive|top)\b/i],
@@ -103,7 +108,7 @@ function spendByCategory(transactions: Transaction[], since: string): Array<[Tra
 }
 
 function buildReply(question: string, context: AssistantContext): Omit<AssistantReply, 'understood'> {
-  const { summary, forecast, prediction, learned, transactions, profile } = context;
+  const { summary, forecast, learned, transactions, recurringPayments, profile } = context;
   const intent = readIntent(question);
 
   // Nothing recorded yet. Answering anything else would be making it up.
@@ -155,17 +160,23 @@ function buildReply(question: string, context: AssistantContext): Omit<Assistant
 
     /* ---- Will my money last? ---- */
     case 'lasting': {
-      const chance = Math.round(prediction.shortfallProbability * 100);
-      const when = prediction.likelyShortfallDate
-        ? ` If it does, it would be around ${formatDate(prediction.likelyShortfallDate)}.`
-        : '';
+      const result = summary.expectedToLastUntilIncome
+        ? 'Your money is expected to last until your next income.'
+        : summary.expectedToLastUntilIncome === false
+          ? `At your current pace, your money may run short ${summary.shortfallDays} ${summary.shortfallDays === 1 ? 'day' : 'days'} early.`
+          : 'I need a few days of spending before I can answer honestly.';
       return {
-        text: `There is about a ${chance} in 100 chance of running short before your next money arrives.${when}\n\n`
-          + `You have ${formatCurrency(summary.disposableBalance)}, and ${formatCurrency(summary.upcomingPaymentsTotal)} of it is already promised to bills. `
-          + `Spending ${formatCurrency(forecast.safeDailyAllowance)} a day is what makes it.`,
+        text: `${result}\n\nYou have ${formatCurrency(summary.disposableBalance)} available, with ${formatCurrency(summary.protectedBalance)} left after essential payments. `
+          + `Try to keep optional spending near ${formatCurrency(summary.safeDailySpending)} a day.`,
         suggestions: ['Where can I save money?', 'What bills are coming?'],
       };
     }
+
+    case 'daily_limit':
+      return {
+        text: `You can spend about ${formatCurrency(summary.safeDailySpending)} a day until your next allowance. That keeps essential payments protected and spreads the remaining money across the next ${summary.daysUntilNextIncome} days.`,
+        suggestions: ['Can I safely spend ₹800 today?', 'Why did my risk increase?'],
+      };
 
     /* ---- Is anything unusual? ---- */
     case 'unusual': {
@@ -203,14 +214,15 @@ function buildReply(question: string, context: AssistantContext): Omit<Assistant
           suggestions: ['Can I afford ₹500?', 'Will my money last?'],
         };
       }
-      const left = summary.disposableBalance - summary.upcomingPaymentsTotal - amount;
-      const daysLeft = forecast.daysRemaining || 1;
-      const perDay = Math.max(0, left / daysLeft);
-      const verdict = left < 0
-        ? `That would leave you short of your own bills by ${formatCurrency(Math.abs(left))}. I would not.`
-        : perDay < forecast.currentDailyPace * 0.5
-          ? `You can, but it would leave only ${formatCurrency(perDay)} a day for the rest of the month — well under the ${formatCurrency(forecast.currentDailyPace)} a day you normally spend.`
-          : `That looks affordable. You would still have about ${formatCurrency(perDay)} a day left.`;
+      const simulation = simulatePurchase(
+        { profile, transactions, recurringPayments },
+        { description: 'Purchase', amount, category: 'shopping', proposedDate: profile.analysisDate ?? toIsoDate(new Date()) },
+      );
+      const verdict = simulation.decision === 'not_recommended'
+        ? `Not recommended. ${simulation.explanation}`
+        : simulation.decision === 'caution'
+          ? `Be careful. ${simulation.explanation}`
+          : `It looks affordable. ${simulation.explanation}`;
 
       return {
         text: `${formatCurrency(amount)}: ${verdict}`,
