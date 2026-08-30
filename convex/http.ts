@@ -28,8 +28,19 @@ import { httpRouter } from 'convex/server';
 import { httpAction } from './_generated/server';
 import { api } from './_generated/api';
 
-const MODEL = 'gemini-2.0-flash';
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+/**
+ * Which Gemini model to call.
+ *
+ * Google retires and renames these regularly, and a name that worked last
+ * term returns 404 this one — which arrives here as a 502. Set it without
+ * touching code:
+ *
+ *   npx convex env set GEMINI_MODEL gemini-2.5-flash
+ *
+ * To see which names your key actually accepts:
+ *   curl "https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY"
+ */
+const DEFAULT_MODEL = 'gemini-2.0-flash';
 
 /**
  * The rules Gemini works under.
@@ -55,6 +66,15 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+/**
+ * Errors come back as HTTP 200 with an `error` field, not as 5xx.
+ *
+ * This cost three rounds of debugging: Cloudflare sits in front of Convex and
+ * replaces the body of any 5xx response with its own "error code: 502" page,
+ * so every explanation written here was discarded before it reached the
+ * caller. Answering 200 with the reason inside is the only way the reason
+ * survives the trip. The app treats a body containing `error` as a failure.
+ */
 const ask = httpAction(async (_ctx, request) => {
   let question = '';
   let figures = '';
@@ -75,13 +95,16 @@ const ask = httpAction(async (_ctx, request) => {
   if (!key) {
     // The app falls back to its own wording when this happens, so a missing
     // key degrades the answer rather than breaking the screen.
-    return new Response(JSON.stringify({ error: 'not configured' }), { status: 503, headers: CORS });
+    return new Response(JSON.stringify({ error: 'GEMINI_API_KEY is not set on this deployment' }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
   }
+
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const prompt = `FIGURES (the only numbers you may use):\n${figures}\n\nQUESTION: ${question}`;
 
   try {
-    const response = await fetch(`${ENDPOINT}?key=${key}`, {
+    const response = await fetch(`${endpoint}?key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -92,21 +115,28 @@ const ask = httpAction(async (_ctx, request) => {
     });
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ error: `gemini ${response.status}` }), { status: 502, headers: CORS });
+      // Pass Google's own explanation through. Without it every failure looks
+      // like a bare 502 and there is no way to tell a bad key from a retired
+      // model from an exhausted quota.
+      const detail = await response.text();
+      return new Response(
+        JSON.stringify({ error: `gemini ${response.status}`, model, detail: detail.slice(0, 400) }),
+        { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } },
+      );
     }
 
     const data = await response.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!text) {
-      return new Response(JSON.stringify({ error: 'empty' }), { status: 502, headers: CORS });
+      return new Response(JSON.stringify({ error: 'empty answer from the model', model }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
     }
 
     return new Response(JSON.stringify({ text }), {
       status: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },
     });
-  } catch {
-    return new Response(JSON.stringify({ error: 'unreachable' }), { status: 502, headers: CORS });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: `could not reach the model: ${String((error as Error).message)}`, model }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
   }
 });
 

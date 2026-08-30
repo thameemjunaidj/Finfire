@@ -100,6 +100,9 @@ export async function askLanguageModel(
 
     if (!response.ok) return null;
     const data = await response.json();
+    // The server answers 200 even when it failed, because Cloudflare eats the
+    // body of any 5xx. So an `error` field is the real signal, not the status.
+    if (data?.error) return null;
     const text = typeof data?.text === 'string' ? data.text.trim() : '';
     return text.length > 0 ? text : null;
   } catch {
