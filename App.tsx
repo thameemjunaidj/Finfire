@@ -35,6 +35,9 @@ function FinFireApp() {
   const { loaded, onboardingComplete, signedInAs, emailVerified, signIn, summary } = useFinance();
   const [tab, setTab] = useState<AppTab>('home');
   const [settingsVisible, setSettingsVisible] = useState(false);
+  /** Set when Home sends you to Spending to add something, so the sheet is
+   *  already open when you arrive instead of asking for one more tap. */
+  const [openAddPayment, setOpenAddPayment] = useState(false);
   useEffect(() => {
     void initializeNotifications();
   }, []);
@@ -67,10 +70,21 @@ function FinFireApp() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <View style={styles.app}>
-        {tab === 'home' ? <HomeScreen onViewAlerts={() => setTab('alerts')} onOpenSettings={() => setSettingsVisible(true)} /> : null}
+        {tab === 'home' ? (
+          <HomeScreen
+            onViewAlerts={() => setTab('alerts')}
+            onOpenSettings={() => setSettingsVisible(true)}
+            onAddSpending={() => { setOpenAddPayment(true); setTab('transactions'); }}
+          />
+        ) : null}
         {tab === 'forecast' ? <ForecastScreen /> : null}
         {tab === 'alerts' ? <AlertsScreen /> : null}
-        {tab === 'transactions' ? <TransactionsScreen /> : null}
+        {tab === 'transactions' ? (
+          <TransactionsScreen
+            openAddOnMount={openAddPayment}
+            onAddOpened={() => setOpenAddPayment(false)}
+          />
+        ) : null}
         {tab === 'simulator' ? <SimulatorScreen /> : null}
         {tab === 'assistant' ? <AssistantScreen /> : null}
         <BottomTabs active={tab} onChange={setTab} alertCount={summary.alerts.length} />

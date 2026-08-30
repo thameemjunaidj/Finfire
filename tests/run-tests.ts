@@ -217,6 +217,39 @@ const sanitized = sanitizePersistedState({
 assert(sanitized?.transactions.length === 1, 'stored malformed transaction rows are discarded safely');
 assert(sanitizePersistedState({ broken: true }) === null, 'unrecoverable saved state is rejected');
 
+/* ---- A week of evidence before any number is put on screen ---- */
+
+// The bug: ₹2,000 of pocket money, ₹1,500 already spent, one day on file —
+// and the app reported perfect health, because every detector compares
+// against a normal it had never seen, found nothing, and said nothing was
+// wrong. Absence of evidence shown as evidence of absence.
+const oneDayDataset: FinanceDataset = {
+  profile: { ...demoDataset.profile, analysisDate: '2026-08-30', availableBalance: 500, monthlyIncome: 2000 },
+  transactions: [{
+    id: 'today-1', date: '2026-08-30', merchant: 'Canteen', amount: 100,
+    direction: 'debit', category: 'food', essential: false, source: 'manual',
+  }],
+  recurringPayments: [],
+};
+const oneDay = calculateFinancialSummary(oneDayDataset);
+assert(oneDay.daysOfHistory === 1, 'a payment entered today counts as one day of history, not zero');
+assert(!oneDay.hasEnoughHistory, 'one day is not enough to score anybody');
+
+// A single backdated payment spans a week but proves nothing, so the entry
+// count has to hold the line on its own.
+const thinWeek = calculateFinancialSummary({
+  ...oneDayDataset,
+  transactions: [{
+    id: 'old-1', date: '2026-08-01', merchant: 'Canteen', amount: 100,
+    direction: 'debit', category: 'food', essential: false, source: 'manual',
+  }],
+});
+assert(thinWeek.daysOfHistory >= 7, 'a backdated payment does span a week');
+assert(!thinWeek.hasEnoughHistory, 'one payment a month ago is still not a week of evidence');
+
+assert(summary.hasEnoughHistory, 'the sample account has plenty of history and is scored normally');
+assert(summary.daysOfHistory >= 7, 'the sample account spans at least a week');
+
 /* ---- Money health: the same finding, said the way round people read it ---- */
 
 assert(healthFromRisk(0) === 100, 'no risk shows as full health');

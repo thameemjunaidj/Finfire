@@ -83,6 +83,21 @@ export interface FinancialSummary {
    * showed the first to someone with ₹15,000 in the bank.
    */
   hasSpendingHistory: boolean;
+  /**
+   * How many days the recorded spending covers, from the earliest entry to
+   * today. One payment entered today is 1, not 0.
+   */
+  daysOfHistory: number;
+  /**
+   * Whether there is enough history for a score to mean anything.
+   *
+   * ₹2,000 of pocket money with ₹1,500 spent should not read as perfect
+   * health, and with one day on file that is exactly what came out: every
+   * detector compares this week against a normal it has never seen, finds
+   * nothing, and reports nothing wrong. Absence of evidence was being shown
+   * as evidence of absence.
+   */
+  hasEnoughHistory: boolean;
   riskScore: number;
   riskBand: RiskBand;
   riskExplanation: string;

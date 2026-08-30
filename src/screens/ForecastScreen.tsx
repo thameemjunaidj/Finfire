@@ -11,6 +11,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { MetricCard } from '../components/MetricCard';
 import { Screen, SectionTitle } from '../components/Screen';
+import { MINIMUM_HISTORY_DAYS } from '../engine/financeEngine';
 import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
 import { CategoryForecast, SavingsAction } from '../types/finance';
@@ -75,7 +76,7 @@ function ActionCard({ action, index }: { action: SavingsAction; index: number })
 }
 
 export function ForecastScreen() {
-  const { forecast, prediction, narrative, learned, profile, transactions } = useFinance();
+  const { forecast, prediction, narrative, learned, profile, summary, transactions } = useFinance();
   /** The sample account is the only one whose figures are not the person's own. */
   const isSample = profile.id.startsWith('demo-');
   const widest = Math.max(
@@ -86,6 +87,35 @@ export function ForecastScreen() {
   const savingsShort = !forecast.onTrack;
   const chanceOutOf100 = Math.round(prediction.shortfallProbability * 100);
   const risky = prediction.shortfallProbability >= 0.2;
+
+  /**
+   * Same gate as the health score on Home, and for the same reason.
+   *
+   * From one day of spending this screen was announcing a 100% chance of
+   * running out on a named date. The simulation is doing exactly what it was
+   * asked to — running one day's rate forward two thousand times — but a
+   * confident date built on a single observation is a guess wearing a
+   * decimal point, and nobody reading it can tell the difference.
+   */
+  if (transactions.length > 0 && !summary.hasEnoughHistory) {
+    const daysToGo = MINIMUM_HISTORY_DAYS - Math.min(summary.daysOfHistory, MINIMUM_HISTORY_DAYS);
+    return (
+      <Screen title="Your month ahead" subtitle="Not enough to forecast from yet.">
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>
+            {`So far there ${summary.daysOfHistory === 1 ? 'is' : 'are'} ${summary.daysOfHistory} `
+              + `${summary.daysOfHistory === 1 ? 'day' : 'days'} of spending on file. `
+              + `Predicting the rest of the month from that would give you a date and a `
+              + `percentage that look precise and are not.`}
+            {'\n\n'}
+            {`${daysToGo} more ${daysToGo === 1 ? 'day' : 'days'} and this fills in: where the `
+              + `month is heading, the chance of running short, and what to cut to change it. `
+              + `Importing a bank statement does it in one go.`}
+          </Text>
+        </View>
+      </Screen>
+    );
+  }
 
   if (transactions.length === 0) {
     return (

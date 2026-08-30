@@ -35,6 +35,24 @@ function createAlert(alert: FinancialAlert): FinancialAlert {
   return alert;
 }
 
+/**
+ * How much history before the app is willing to put a number on anything.
+ *
+ * A week, and at least three payments. Both, because either one alone can be
+ * satisfied without any real evidence: seven days can be a single backdated
+ * entry, and three payments can all be from this morning. Together they mean
+ * the app has actually watched someone spend for a while.
+ *
+ * A week is also the shortest span where "unusual" means anything, because
+ * spending is weekly — weekends cost more than Tuesdays, and a baseline that
+ * has not seen a weekend will call every Saturday a surge.
+ *
+ * Importing a bank statement clears both in one go, which is the intended
+ * route in. Entering payments by hand takes longer, and should.
+ */
+export const MINIMUM_HISTORY_DAYS = 7;
+const MINIMUM_HISTORY_ENTRIES = 3;
+
 export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSummary {
   const { profile, transactions, recurringPayments } = dataset;
   const asOf = profile.analysisDate ?? toIsoDate(new Date());
@@ -72,6 +90,13 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
    * to a month. Then a surge means "this week is unlike your other weeks",
    * which is a real signal and works from about two weeks of history.
    */
+  // Inclusive: a payment entered today is one day of history, not zero.
+  const daysOfHistory = debitTransactions.length
+    ? Math.max(1, daysBetween(earliestDate, asOf) + 1)
+    : 0;
+  const hasEnoughHistory = daysOfHistory >= MINIMUM_HISTORY_DAYS
+    && debitTransactions.length >= MINIMUM_HISTORY_ENTRIES;
+
   const priorWindowEnd = addDays(asOf, -7);
   const priorRows = debitTransactions.filter((item) => item.date <= priorWindowEnd);
   const priorDays = priorRows.length ? Math.max(1, daysBetween(earliestDate, priorWindowEnd)) : 0;
@@ -109,6 +134,8 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
 
     return {
       hasSpendingHistory: false,
+      daysOfHistory: 0,
+      hasEnoughHistory: false,
       riskScore: noMoney ? 30 : 0,
       riskBand: noMoney ? 'Caution' : 'Safe',
       riskExplanation: noMoney
@@ -372,6 +399,8 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
 
   return {
     hasSpendingHistory: true,
+    daysOfHistory,
+    hasEnoughHistory,
     riskScore,
     riskBand,
     riskExplanation,

@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { FinButton } from '../components/FinButton';
+import { DatePickerField } from '../components/DatePickerField';
 import { FormField } from '../components/FormField';
 import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
@@ -72,7 +73,18 @@ export function OnboardingScreen() {
             <FormField label="Your name" value={name} onChangeText={setName} placeholder="e.g. Thameem" />
             <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="48000" />
             <FormField label="Money currently available (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
-            <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder={addDays(today, 14)} />
+            {/* The calendar picker exists and every other date field uses
+                it; this one was still a text box asking for YYYY-MM-DD,
+                which is the format people get wrong. */}
+            <View style={styles.dateField}>
+              <DatePickerField
+                label="When does your next money arrive?"
+                value={nextIncomeDate}
+                onChange={setNextIncomeDate}
+                earliest={today}
+                latest={addDays(today, 400)}
+              />
+            </View>
             <FormField label="Essential bills each month (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
             <FinButton label="Continue" icon="arrow-right" disabled={!canContinue} onPress={submit} />
             <FinButton label="Back" variant="ghost" onPress={() => setCustom(false)} style={styles.secondaryButton} />

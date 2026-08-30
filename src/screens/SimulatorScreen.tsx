@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChoiceChips } from '../components/ChoiceChips';
 import { FinButton } from '../components/FinButton';
+import { DatePickerField } from '../components/DatePickerField';
 import { FormField } from '../components/FormField';
 import { Screen } from '../components/Screen';
 import { useFinance } from '../context/FinanceContext';
@@ -71,8 +72,18 @@ export function SimulatorScreen() {
         ))}</View>
         <Text style={styles.label}>What type of purchase is it?</Text>
         <ChoiceChips values={simulatorCategories} selected={category} onSelect={setCategory} />
-        <View style={styles.dateField}><FormField label="When would you buy it? (YYYY-MM-DD)" value={date} onChangeText={setDate} /></View>
-        <Text style={styles.dateHelper}>Choose a date from {analysisDate} through {profile.nextIncomeDate}.</Text>
+        {/* Bounded by the calendar rather than by a warning underneath it:
+            you cannot pick a day outside the window, so there is nothing to
+            explain and nothing to get wrong. */}
+        <View style={styles.dateField}>
+          <DatePickerField
+            label="When would you buy it?"
+            value={date}
+            onChange={setDate}
+            earliest={analysisDate}
+            latest={profile.nextIncomeDate || analysisDate}
+          />
+        </View>
         <FinButton label="Check this purchase" icon="activity" disabled={!canSimulate} onPress={simulate} />
       </View>
       {result ? (

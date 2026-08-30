@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ChoiceChips } from '../components/ChoiceChips';
 import { FinButton } from '../components/FinButton';
@@ -21,7 +21,11 @@ import { isValidIsoDate, parsePositiveMoney } from '../utils/validation';
 
 type CategoryFilter = 'all' | TransactionCategory;
 
-export function TransactionsScreen() {
+export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
+  /** True when Home sent the person here to add something. */
+  openAddOnMount?: boolean;
+  onAddOpened?: () => void;
+} = {}) {
   const { transactions, profile, addTransaction, deleteTransaction, importTransactions, setTransactionCategory } = useFinance();
   const keyboard = useKeyboardHeight();
   const [search, setSearch] = useState('');
@@ -30,6 +34,19 @@ export function TransactionsScreen() {
   const [scheduledVisible, setScheduledVisible] = useState(false);
   /** The payment whose category is being corrected. */
   const [editing, setEditing] = useState<Transaction | null>(null);
+
+  /**
+   * Open the add sheet straight away when Home sent us here.
+   *
+   * The Home empty state used to be a card that read "go to the Spending
+   * tab" — a dead end with instructions on it. It is a button now, and this
+   * is the other half: arriving already on the form, not one tap short of it.
+   */
+  useEffect(() => {
+    if (!openAddOnMount) return;
+    setAddVisible(true);
+    onAddOpened?.();
+  }, [openAddOnMount, onAddOpened]);
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(profile.analysisDate ?? toIsoDate(new Date()));

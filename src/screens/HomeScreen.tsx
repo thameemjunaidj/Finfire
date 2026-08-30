@@ -7,12 +7,18 @@ import { MetricCard } from '../components/MetricCard';
 import { RiskGauge } from '../components/RiskGauge';
 import { Screen, SectionTitle } from '../components/Screen';
 import { useFinance } from '../context/FinanceContext';
+import { MINIMUM_HISTORY_DAYS } from '../engine/financeEngine';
 import { colors, radii, spacing } from '../theme/colors';
 import { FinancialAlert } from '../types/finance';
 import { toIsoDate } from '../utils/dates';
 import { formatCurrency, formatDate, formatWhenKnown, healthColor, healthFromRisk } from '../utils/format';
 
-export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () => void; onOpenSettings: () => void }) {
+export function HomeScreen({ onViewAlerts, onOpenSettings, onAddSpending }: {
+  onViewAlerts: () => void;
+  onOpenSettings: () => void;
+  /** Jumps to the Spending tab with the "add money" sheet already open. */
+  onAddSpending: () => void;
+}) {
   const { profile, summary, transactions } = useFinance();
   const [selectedAlert, setSelectedAlert] = useState<FinancialAlert | null>(null);
   const maxSpend = Math.max(...summary.monthlySpend.map((item) => item.amount), 1);
@@ -32,21 +38,66 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
         {/* A brand-new account used to land on a screen of zeroes with no clue
             what to do. Everything below needs spending to mean anything, so
             until there is some, this is the whole screen. */}
+        {/* This used to be a card that TOLD you to go to the Spending tab.
+            Telling someone where to tap, on a screen you could have made
+            tappable, is a dead end with instructions written on it. */}
         {transactions.length === 0 ? (
-          <View style={styles.firstRun}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add your first payment"
+            onPress={onAddSpending}
+            style={({ pressed }) => [styles.firstRun, pressed && styles.firstRunPressed]}
+          >
             <Feather name="plus-circle" size={28} color={colors.primary} />
             <Text style={styles.firstRunTitle}>Add your first few payments</Text>
             <Text style={styles.firstRunText}>
-              Go to the Spending tab and add what you have spent — by hand, or import a statement
-              from your bank. Once there are a few days in here, this screen starts warning you
-              about what is coming.
+              Tap here to add what you have spent, or import a statement from your bank. After a
+              week of spending this screen starts warning you about what is coming.
             </Text>
-          </View>
+            <View style={styles.firstRunCta}>
+              <Text style={styles.firstRunCtaText}>Add a payment</Text>
+              <Feather name="arrow-right" size={14} color={colors.black} />
+            </View>
+          </Pressable>
         ) : null}
 
         {transactions.length > 0 ? (
           <>
-        <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
+        {/* A score needs something to score. Until there is a week of
+            spending behind it, this says how far off that is instead of
+            inventing a number — ₹2,000 of pocket money with ₹1,500 already
+            gone was reading as perfect health, because nothing had been
+            watched for long enough to look wrong. */}
+        {summary.hasEnoughHistory ? (
+          <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
+        ) : (
+          <View style={styles.building}>
+            <View style={styles.buildingTop}>
+              <View>
+                <Text style={styles.buildingEyebrow}>YOUR MONEY HEALTH</Text>
+                <Text style={styles.buildingTitle}>Still learning</Text>
+              </View>
+              <View style={styles.buildingCount}>
+                <Text style={styles.buildingCountText}>
+                  {Math.min(summary.daysOfHistory, MINIMUM_HISTORY_DAYS)}/{MINIMUM_HISTORY_DAYS}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.buildingTrack}>
+              <View
+                style={[
+                  styles.buildingFill,
+                  { width: `${Math.max(5, Math.min(100, (summary.daysOfHistory / MINIMUM_HISTORY_DAYS) * 100))}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.buildingText}>
+              {`A week of spending is what it takes to tell an unusual day from an ordinary one. `
+                + `${MINIMUM_HISTORY_DAYS - Math.min(summary.daysOfHistory, MINIMUM_HISTORY_DAYS)} more days to go — `
+                + `or import a bank statement and fill it in at once.`}
+            </Text>
+          </View>
+        )}
         {/* Two metrics, not four. Projected spend and upcoming payments both
             now live on the Forecast tab, where they have room to be explained;
             repeating them here was a large part of what made this screen read
@@ -55,12 +106,14 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
           <MetricCard label="Money left" value={formatCurrency(summary.disposableBalance)} helper={`${formatCurrency(summary.protectedBalance)} after essential bills`} icon="credit-card" accent={colors.safe} />
           <MetricCard
             label="How long it may last"
-            value={formatWhenKnown(summary.hasSpendingHistory, `${summary.runwayDays} days`)}
-            helper={summary.hasSpendingHistory
+            value={formatWhenKnown(summary.hasEnoughHistory, `${summary.runwayDays} days`)}
+            helper={summary.hasEnoughHistory
               ? 'Based on your recent optional spending'
-              : 'Add some spending and I can work this out'}
+              : `Needs ${MINIMUM_HISTORY_DAYS} days of spending`}
             icon="battery-charging"
-            accent={healthColor(healthFromRisk(summary.riskScore))}
+            accent={summary.hasEnoughHistory
+              ? healthColor(healthFromRisk(summary.riskScore))
+              : colors.textMuted}
           />
         </View>
         <SectionTitle title="Monthly spending" />
@@ -103,8 +156,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary,
     borderRadius: radii.lg, padding: spacing.xl, marginBottom: spacing.lg,
   },
+  firstRunPressed: { opacity: 0.85, borderColor: colors.high },
   firstRunTitle: { color: colors.text, fontSize: 17, fontWeight: '900' },
   firstRunText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  firstRunCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm,
+    backgroundColor: colors.primary, borderRadius: radii.pill,
+    paddingVertical: 10, paddingHorizontal: spacing.xl,
+  },
+  firstRunCtaText: { color: colors.black, fontSize: 13, fontWeight: '900' },
+
+  building: {
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radii.xl, padding: spacing.xl, gap: spacing.md,
+  },
+  buildingTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  buildingEyebrow: { color: colors.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+  buildingTitle: { color: colors.text, fontSize: 23, fontWeight: '900', marginTop: spacing.xs },
+  buildingCount: {
+    borderWidth: 2, borderColor: colors.border, borderRadius: radii.pill,
+    paddingVertical: 8, paddingHorizontal: spacing.lg,
+  },
+  buildingCountText: { color: colors.textSecondary, fontSize: 15, fontWeight: '900' },
+  buildingTrack: { height: 8, borderRadius: radii.pill, backgroundColor: colors.backgroundRaised, overflow: 'hidden' },
+  buildingFill: { height: '100%', borderRadius: radii.pill, backgroundColor: colors.primary },
+  buildingText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   settings: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   dataStatus: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: `${colors.primary}55`, borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 7, marginBottom: spacing.md },
   dataStatusText: { color: colors.primary, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.5 },
