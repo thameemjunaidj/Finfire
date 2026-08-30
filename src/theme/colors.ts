@@ -9,6 +9,16 @@ export const colors = {
   primarySoft: '#2B0906',
   safe: '#FFFFFF',
   safeSoft: '#161616',
+  /**
+   * The one colour outside black/white/red, and it earns its place.
+   *
+   * Money health is the only number in the app where high is good. Rendering
+   * "94 out of 100" in the same white as everything else told the reader
+   * nothing, and rendering it in red said the opposite of what it meant. Green
+   * is the only colour a person reads as "you are fine" without being taught.
+   */
+  healthy: '#2BD97C',
+  healthySoft: '#062015',
   watch: '#FFB3A8',
   watchSoft: '#2A1310',
   high: '#FF6B57',

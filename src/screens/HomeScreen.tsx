@@ -10,7 +10,7 @@ import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
 import { FinancialAlert } from '../types/finance';
 import { toIsoDate } from '../utils/dates';
-import { formatCurrency, formatDate, formatWhenKnown, riskColor } from '../utils/format';
+import { formatCurrency, formatDate, formatWhenKnown, healthColor, healthFromRisk } from '../utils/format';
 
 export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () => void; onOpenSettings: () => void }) {
   const { profile, summary, transactions } = useFinance();
@@ -60,7 +60,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
               ? 'Based on your recent optional spending'
               : 'Add some spending and I can work this out'}
             icon="battery-charging"
-            accent={riskColor(summary.riskBand)}
+            accent={healthColor(healthFromRisk(summary.riskScore))}
           />
         </View>
         <SectionTitle title="Monthly spending" />

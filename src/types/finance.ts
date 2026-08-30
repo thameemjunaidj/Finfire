@@ -131,6 +131,16 @@ export interface PersistedFinanceState extends FinanceDataset {
   sessionToken?: string;
   /** Whether the signed-in address has been confirmed by email. */
   emailVerified?: boolean;
+  /**
+   * Set when the server could not send the confirmation email at all — a
+   * missing mail key, a sender the mail provider rejected.
+   *
+   * It exists so the app can tell "waiting for them to tap the link" apart
+   * from "no link was ever sent". Holding someone at a confirmation screen for
+   * an email that does not exist would lock them out of an app that otherwise
+   * works entirely on their phone, so in that one case they are let through.
+   */
+  verificationEmailFailed?: boolean;
   /** Warnings the person has said "got it" to. They stop showing and stop
    *  counting, until the demo is reset. */
   dismissedAlertIds?: string[];

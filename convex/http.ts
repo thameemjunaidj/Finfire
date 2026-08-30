@@ -166,19 +166,23 @@ const ask = httpAction(async (_ctx, request) => {
  * If the key is missing the account is still created — email is a nicety, not
  * a gate. The app shows an unverified badge instead of failing the sign-up.
  */
-async function sendVerificationEmail(
-  email: string,
-  verifyToken: string,
-  origin: string,
-): Promise<boolean> {
+interface Letter {
+  to: string;
+  subject: string;
+  heading: string;
+  body: string;
+  buttonLabel: string;
+  link: string;
+  footnote: string;
+}
+
+async function sendMail(letter: Letter): Promise<boolean> {
   const key = process.env.BREVO_API_KEY;
   if (!key) return false;
 
   const fromEmail = process.env.MAIL_FROM_EMAIL || '';
   const fromName = process.env.MAIL_FROM_NAME || 'Fin Extinguisher';
   if (!fromEmail) return false;
-
-  const link = `${origin}/auth/verify?token=${verifyToken}`;
 
   try {
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -190,14 +194,14 @@ async function sendVerificationEmail(
       },
       body: JSON.stringify({
         sender: { name: fromName, email: fromEmail },
-        to: [{ email }],
-        subject: 'Confirm your email for Fin Extinguisher',
+        to: [{ email: letter.to }],
+        subject: letter.subject,
         htmlContent: `<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;padding:32px">
 <div style="max-width:480px;margin:0 auto">
-<h1 style="font-size:22px;margin:0 0 16px">Confirm your email</h1>
-<p style="color:#b5b5b5;line-height:1.6;margin:0 0 24px">Tap the button to confirm this address for Fin Extinguisher. It lets you back your spending up and get it back if you change phone.</p>
-<a href="${link}" style="display:inline-block;background:#FF1A0D;color:#000;font-weight:800;text-decoration:none;padding:14px 28px;border-radius:999px">Confirm email</a>
-<p style="color:#7a7a7a;font-size:12px;line-height:1.6;margin:28px 0 0">If you did not create an account, ignore this — nothing will happen.</p>
+<h1 style="font-size:22px;margin:0 0 16px">${letter.heading}</h1>
+<p style="color:#b5b5b5;line-height:1.6;margin:0 0 24px">${letter.body}</p>
+<a href="${letter.link}" style="display:inline-block;background:#FF1A0D;color:#000;font-weight:800;text-decoration:none;padding:14px 28px;border-radius:999px">${letter.buttonLabel}</a>
+<p style="color:#7a7a7a;font-size:12px;line-height:1.6;margin:28px 0 0">${letter.footnote}</p>
 </div></body></html>`,
       }),
     });
@@ -213,6 +217,38 @@ async function sendVerificationEmail(
     console.error('Brevo unreachable:', String((error as Error).message));
     return false;
   }
+}
+
+async function sendVerificationEmail(
+  email: string,
+  verifyToken: string,
+  origin: string,
+): Promise<boolean> {
+  return sendMail({
+    to: email,
+    subject: 'Confirm your email for Fin Extinguisher',
+    heading: 'Confirm your email',
+    body: 'Tap the button to confirm this address. The app is waiting on this screen and will move on by itself the moment you do — you do not need to type anything back into it.',
+    buttonLabel: 'Confirm email',
+    link: `${origin}/auth/verify?token=${verifyToken}`,
+    footnote: 'If you did not create an account, ignore this — nothing will happen.',
+  });
+}
+
+async function sendResetEmail(
+  email: string,
+  resetToken: string,
+  origin: string,
+): Promise<boolean> {
+  return sendMail({
+    to: email,
+    subject: 'Reset your Fin Extinguisher password',
+    heading: 'Set a new password',
+    body: 'Tap the button to choose a new password for Fin Extinguisher. The link works once and stops working after an hour.',
+    buttonLabel: 'Choose a new password',
+    link: `${origin}/auth/reset?token=${resetToken}`,
+    footnote: 'If you did not ask for this, ignore it. Your password stays as it is.',
+  });
 }
 
 /** The page someone lands on after tapping the link. */
@@ -235,7 +271,10 @@ const verify = httpAction(async (ctx, request) => {
   if (result.error) {
     return verificationPage('That link did not work', String(result.error));
   }
-  return verificationPage('Email confirmed', 'You can close this and go back to the app.');
+  return verificationPage(
+    'Email confirmed',
+    'You can close this. The app has already noticed and moved on by itself.',
+  );
 });
 
 const resendVerification = httpAction(async (ctx, request) => {
@@ -247,6 +286,143 @@ const resendVerification = httpAction(async (ctx, request) => {
     }
     const sent = await sendVerificationEmail(result.email!, result.verifyToken!, new URL(request.url).origin);
     return new Response(JSON.stringify({ sent }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+});
+
+/**
+ * "Is this account confirmed yet?"
+ *
+ * The app sits on the confirmation screen and asks this every few seconds.
+ * That is the whole trick behind the screen moving on by itself: the link is
+ * opened in a browser, which cannot talk to the phone, so the phone has to be
+ * the one that notices. Polling is unglamorous and it is also the only thing
+ * that works without push notifications or a deep link, both of which need a
+ * development build this project does not have time for.
+ */
+const authStatus = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    const result = await ctx.runQuery(api.auth.isVerified, { token: String(body.token ?? '') });
+    // A null result means the session is gone — signed out elsewhere, or the
+    // password was reset. The app treats that as "sign in again".
+    return new Response(JSON.stringify(result ?? { expired: true }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Forgotten passwords                                                 */
+/* ------------------------------------------------------------------ */
+
+const forgotPassword = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    const result = await ctx.runMutation(api.auth.requestReset, { email: String(body.email ?? '') });
+
+    // A token comes back only for a real, un-throttled account. Either way the
+    // app is told the same thing, so this cannot be used to find out who has
+    // an account here.
+    if (result.resetToken && result.email) {
+      await sendResetEmail(result.email, result.resetToken, new URL(request.url).origin);
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+});
+
+/**
+ * The new-password form, served as a web page.
+ *
+ * The alternative was mailing a six-digit code and collecting it in the app,
+ * which is a nicer flow and about four more screens of work. This keeps the
+ * whole reset inside the one tap the person already made, and hands them back
+ * to the app to sign in normally afterwards.
+ */
+const resetPage = httpAction(async (ctx, request) => {
+  const token = new URL(request.url).searchParams.get('token') ?? '';
+  const check = await ctx.runQuery(api.auth.checkReset, { resetToken: token });
+
+  if (!check.valid) {
+    return verificationPage(
+      'That link no longer works',
+      'Reset links last an hour and can only be used once. Open the app and ask for another.',
+    );
+  }
+
+  const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New password</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;padding:24px}
+  .box{width:100%;max-width:380px}
+  h1{font-size:24px;margin:0 0 8px}
+  p.sub{color:#b5b5b5;line-height:1.6;margin:0 0 24px;font-size:14px}
+  input{width:100%;box-sizing:border-box;background:#1C1C1C;border:1px solid #2E2E2E;border-radius:12px;color:#fff;font-size:16px;padding:14px 16px;margin-bottom:12px}
+  input:focus{outline:none;border-color:#FF1A0D}
+  button{width:100%;background:#FF1A0D;color:#000;font-weight:800;font-size:16px;border:0;border-radius:999px;padding:15px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  .msg{margin-top:16px;font-size:14px;line-height:1.5;min-height:20px}
+  .bad{color:#FF6B57}
+  .good{color:#2BD97C}
+</style></head>
+<body><div class="box">
+<h1>Set a new password</h1>
+<p class="sub">For ${check.email}. Use at least 8 characters with a number in it.</p>
+<input id="a" type="password" placeholder="New password" autocomplete="new-password">
+<input id="b" type="password" placeholder="Confirm new password" autocomplete="new-password">
+<button id="go">Save new password</button>
+<p class="msg" id="msg"></p>
+</div>
+<script>
+  var token = ${JSON.stringify(token)};
+  var go = document.getElementById('go');
+  var msg = document.getElementById('msg');
+
+  function say(text, good) {
+    msg.textContent = text;
+    msg.className = 'msg ' + (good ? 'good' : 'bad');
+  }
+
+  go.addEventListener('click', function () {
+    var a = document.getElementById('a').value;
+    var b = document.getElementById('b').value;
+
+    if (a.length < 8) return say('Use at least 8 characters.');
+    if (!/[0-9]/.test(a)) return say('Include at least one number.');
+    if (a !== b) return say('The two passwords do not match.');
+
+    go.disabled = true;
+    say('Saving...', true);
+
+    fetch('/auth/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, password: a })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) { go.disabled = false; return say(d.error); }
+        document.querySelector('.box').innerHTML =
+          '<h1>Password changed</h1><p class="sub">Go back to Fin Extinguisher and sign in with your new password. Every device that was signed in has been signed out.</p>';
+      })
+      .catch(function () { go.disabled = false; say('Could not reach the server. Try again.'); });
+  });
+</script>
+</body></html>`;
+
+  return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+});
+
+const applyReset = httpAction(async (ctx, request) => {
+  try {
+    const body = await request.json();
+    const result = await ctx.runMutation(api.auth.resetPassword, {
+      resetToken: String(body.token ?? ''),
+      password: String(body.password ?? ''),
+    });
+    return new Response(JSON.stringify(result), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
   } catch (error) {
     return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
   }
@@ -369,13 +545,17 @@ http.route({ path: '/auth/signin', method: 'POST', handler: signIn });
 http.route({ path: '/auth/signout', method: 'POST', handler: signOut });
 http.route({ path: '/auth/verify', method: 'GET', handler: verify });
 http.route({ path: '/auth/resend', method: 'POST', handler: resendVerification });
+http.route({ path: '/auth/status', method: 'POST', handler: authStatus });
+http.route({ path: '/auth/forgot', method: 'POST', handler: forgotPassword });
+http.route({ path: '/auth/reset', method: 'GET', handler: resetPage });
+http.route({ path: '/auth/reset', method: 'POST', handler: applyReset });
 http.route({ path: '/backup/save', method: 'POST', handler: saveBackup });
 http.route({ path: '/backup/load', method: 'POST', handler: loadBackup });
 http.route({ path: '/backup/delete', method: 'POST', handler: deleteBackup });
 
 // Browsers ask permission before posting; every route needs to answer.
 const allow = httpAction(async () => new Response(null, { status: 204, headers: CORS }));
-for (const path of ['/ask', '/auth/signup', '/auth/signin', '/auth/signout', '/auth/resend', '/backup/save', '/backup/load', '/backup/delete']) {
+for (const path of ['/ask', '/auth/signup', '/auth/signin', '/auth/signout', '/auth/resend', '/auth/status', '/auth/forgot', '/auth/reset', '/backup/save', '/backup/load', '/backup/delete']) {
   http.route({ path, method: 'OPTIONS', handler: allow });
 }
 

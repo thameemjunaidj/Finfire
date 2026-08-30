@@ -14,6 +14,7 @@ import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { SignInScreen } from './src/screens/SignInScreen';
 import { SimulatorScreen } from './src/screens/SimulatorScreen';
 import { TransactionsScreen } from './src/screens/TransactionsScreen';
+import { VerifyEmailScreen } from './src/screens/VerifyEmailScreen';
 import { initializeNotifications } from './src/services/notifications';
 import { colors } from './src/theme/colors';
 
@@ -31,7 +32,7 @@ LogBox.ignoreLogs([
 ]);
 
 function FinFireApp() {
-  const { loaded, onboardingComplete, signedInAs, signIn, summary } = useFinance();
+  const { loaded, onboardingComplete, signedInAs, emailVerified, signIn, summary } = useFinance();
   const [tab, setTab] = useState<AppTab>('home');
   const [settingsVisible, setSettingsVisible] = useState(false);
   useEffect(() => {
@@ -40,8 +41,28 @@ function FinFireApp() {
   if (!loaded) {
     return <View style={styles.loading}><ActivityIndicator color={colors.primary} size="large" /></View>;
   }
-  // Sign in, then set up the account, then the app itself.
-  if (!signedInAs) return <SignInScreen onSignedIn={(account) => signIn(account.email, account.token, account.verified)} />;
+  /**
+   * Four doors, in order, and each one has to be passed to reach the next:
+   *
+   *   1. Sign in or create an account
+   *   2. Confirm the email address     <- new, and it waits
+   *   3. Set the account up
+   *   4. The app
+   *
+   * Confirmation sits at step 2 rather than being something you can get to
+   * later from Settings, because the address is what the account IS: it is
+   * where a password reset goes, and it is the name the spending is filed
+   * under. An unconfirmed address is a guess.
+   */
+  if (!signedInAs) {
+    return (
+      <SignInScreen
+        onSignedIn={(account, restored, emailFailed) =>
+          signIn(account.email, account.token, account.verified, restored, emailFailed)}
+      />
+    );
+  }
+  if (!emailVerified) return <VerifyEmailScreen />;
   if (!onboardingComplete) return <OnboardingScreen />;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>

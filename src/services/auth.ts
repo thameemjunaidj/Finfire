@@ -105,3 +105,41 @@ export async function resendVerification(token: string): Promise<{ sent: boolean
   if (result.error) return { sent: false, error: String(result.error) };
   return { sent: result.sent === true };
 }
+
+/**
+ * Has this account been confirmed yet?
+ *
+ * Asked on a timer while the person is sitting on the "check your inbox"
+ * screen. The link opens in a browser, and a browser has no way to tell the
+ * phone anything, so the phone has to keep asking.
+ *
+ * Three answers, all of which matter:
+ *   { verified: true  } — done, let them in
+ *   { verified: false } — keep waiting
+ *   { expired: true }   — the session is gone; send them back to sign in
+ *
+ * A network failure returns `unknown`, which means "ask again later" and NOT
+ * "signed out" — a lift with no signal must not eject anyone from the app.
+ */
+export async function checkVerification(
+  token: string,
+): Promise<{ state: 'verified' | 'waiting' | 'expired' | 'unknown' }> {
+  const result = await call('/auth/status', { token });
+  if (!result || result.error) return { state: 'unknown' };
+  if (result.expired) return { state: 'expired' };
+  return { state: result.verified === true ? 'verified' : 'waiting' };
+}
+
+/**
+ * Start a password reset.
+ *
+ * Always reports success, even for an address with no account. The server
+ * deliberately answers the same way in both cases — otherwise this screen
+ * becomes a tool for checking whether a given person has an account here.
+ */
+export async function requestPasswordReset(email: string): Promise<{ ok: boolean; error?: string }> {
+  const result = await call('/auth/forgot', { email });
+  if (!result) return { ok: false, error: 'Could not reach the server. Check your connection.' };
+  if (result.error) return { ok: false, error: String(result.error) };
+  return { ok: true };
+}

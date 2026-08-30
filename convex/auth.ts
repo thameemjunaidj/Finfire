@@ -186,6 +186,103 @@ export const newVerifyToken = mutation({
   },
 });
 
+/* ------------------------------------------------------------------ */
+/* Forgotten passwords                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Start a reset.
+ *
+ * Note what this returns when the address is unknown: `{ ok: true }`, exactly
+ * as if it had worked. Saying "no account with that email" would turn this
+ * endpoint into a way to test whether any given person has an account here,
+ * which is not information worth handing out to get a marginally friendlier
+ * error message. The HTTP layer sends mail only when a token comes back.
+ */
+export const requestReset = mutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const email = normalise(args.email);
+    const user = await ctx.db
+      .query('users').withIndex('by_email', (q) => q.eq('email', email)).unique();
+
+    // Every path returns the same SHAPE, with empty strings standing in for
+    // "nothing to send". A union of different shapes here is a type the HTTP
+    // layer cannot read a token off without a cast, and a cast is how the
+    // wrong branch gets treated as the right one later.
+    if (!user) return { ok: true, email: '', resetToken: '' };
+
+    // Same one-a-minute limit as the verification link, and for the same
+    // reason: without it, anyone can use this to bury a stranger's inbox.
+    if (user.resetSentAt && Date.now() - user.resetSentAt < 60_000) {
+      return { ok: true, email: '', resetToken: '' };
+    }
+
+    const resetToken = randomHex(24);
+    await ctx.db.patch(user._id, { resetToken, resetSentAt: Date.now() });
+    return { ok: true, email: user.email, resetToken };
+  },
+});
+
+/** Whether a reset link is still good, checked before showing the form. */
+export const checkReset = query({
+  args: { resetToken: v.string() },
+  handler: async (ctx, args) => {
+    if (!args.resetToken) return { valid: false, email: '' };
+    const user = await ctx.db
+      .query('users')
+      .withIndex('by_reset_token', (q) => q.eq('resetToken', args.resetToken))
+      .unique();
+    if (!user || !user.resetSentAt || Date.now() - user.resetSentAt > 60 * 60_000) {
+      return { valid: false, email: '' };
+    }
+    return { valid: true, email: user.email };
+  },
+});
+
+/**
+ * Finish a reset: new password, token burned, every session dropped.
+ *
+ * Dropping the sessions is the part that is easy to leave out and matters
+ * most. Someone resets their password precisely because they think another
+ * person might have it — leaving that person's phone signed in defeats the
+ * whole exercise.
+ */
+export const resetPassword = mutation({
+  args: { resetToken: v.string(), password: v.string() },
+  handler: async (ctx, args) => {
+    if (args.password.length < 8) return { error: 'Use at least 8 characters for your password.', email: '' };
+
+    const user = await ctx.db
+      .query('users')
+      .withIndex('by_reset_token', (q) => q.eq('resetToken', args.resetToken))
+      .unique();
+
+    if (!user || !user.resetSentAt || Date.now() - user.resetSentAt > 60 * 60_000) {
+      return { error: 'That link has already been used, or has expired. Ask for a new one.', email: '' };
+    }
+
+    const salt = randomHex(16);
+    const hash = await hashPassword(args.password, salt);
+    await ctx.db.patch(user._id, {
+      salt,
+      hash,
+      resetToken: undefined,
+      resetSentAt: undefined,
+      // Reaching the inbox proves the address as well as any link does, so a
+      // completed reset also confirms an account that was never confirmed.
+      verified: true,
+      verifyToken: undefined,
+    });
+
+    const sessions = await ctx.db
+      .query('sessions').withIndex('by_email', (q) => q.eq('email', user.email)).collect();
+    for (const session of sessions) await ctx.db.delete(session._id);
+
+    return { error: '', email: user.email };
+  },
+});
+
 /** Whether this session's address has been verified. */
 export const isVerified = query({
   args: { token: v.string() },

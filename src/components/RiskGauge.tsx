@@ -1,29 +1,50 @@
+/**
+ * RiskGauge — the money health dial on the Home screen.
+ *
+ * IT TAKES RISK AND SHOWS HEALTH
+ * The prop is still the engine's risk score, because that is what the engine
+ * produces and there is no sense in two competing scales floating around the
+ * codebase. The flip happens here, at the last moment before pixels:
+ *
+ *     risk 6  ->  health 94  ->  green, bar nearly full
+ *     risk 88 ->  health 12  ->  red, bar nearly empty
+ *
+ * Before this the screen showed the raw risk, so somebody in perfect shape saw
+ * a white "0 / 100" above an empty bar. Every instinct a person has about a
+ * progress bar said they were failing.
+ */
+
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme/colors';
 import { RiskBand } from '../types/finance';
-import { riskColor } from '../utils/format';
+import { healthColor, healthFromRisk, healthLabel } from '../utils/format';
 
 export function RiskGauge({ score, band, explanation }: { score: number; band: RiskBand; explanation: string }) {
-  const accent = riskColor(band);
+  const health = healthFromRisk(score);
+  const accent = healthColor(health);
+  const label = healthLabel(band);
+
   return (
     <View
       accessible
-      accessibilityLabel={`Money health ${band}, score ${score} out of 100. ${explanation}`}
+      accessibilityLabel={`Money health ${label}, ${health} out of 100. ${explanation}`}
       style={[styles.card, { borderColor: `${accent}80` }]}
     >
       <View style={styles.topRow}>
         <View>
           <Text style={styles.eyebrow}>YOUR MONEY HEALTH</Text>
-          <Text style={[styles.band, { color: accent }]}>{band}</Text>
+          <Text style={[styles.band, { color: accent }]}>{label}</Text>
         </View>
         <View style={[styles.scoreCircle, { borderColor: accent, backgroundColor: `${accent}15` }]}>
-          <Text style={styles.score}>{score}</Text>
+          <Text style={[styles.score, { color: accent }]}>{health}</Text>
           <Text style={styles.outOf}>/100</Text>
         </View>
       </View>
       <View style={styles.track}>
-        <View style={[styles.progress, { width: `${Math.max(4, score)}%`, backgroundColor: accent }]} />
+        {/* Minimum 4% so a health of zero still reads as a bar at empty rather
+            than as a bar that failed to render. */}
+        <View style={[styles.progress, { width: `${Math.max(4, health)}%`, backgroundColor: accent }]} />
       </View>
       <Text style={styles.explanation}>{explanation}</Text>
     </View>
@@ -36,7 +57,7 @@ const styles = StyleSheet.create({
   eyebrow: { color: colors.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
   band: { fontSize: 25, fontWeight: '900', marginTop: spacing.xs },
   scoreCircle: { width: 76, height: 76, borderRadius: 38, borderWidth: 3, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', paddingTop: 20 },
-  score: { color: colors.text, fontSize: 27, fontWeight: '900' },
+  score: { fontSize: 27, fontWeight: '900' },
   outOf: { color: colors.textMuted, fontSize: 10, fontWeight: '700' },
   track: { height: 8, borderRadius: radii.pill, backgroundColor: colors.backgroundRaised, marginTop: spacing.xl, overflow: 'hidden' },
   progress: { height: '100%', borderRadius: radii.pill },

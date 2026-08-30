@@ -66,6 +66,67 @@ export function riskColor(band: RiskBand): string {
   return colors.safe;
 }
 
+/* ------------------------------------------------------------------ */
+/* Money health — the same finding, said the way round people read it   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The engines work in RISK: 0 is fine, 100 is trouble. That is the right way
+ * to compute it — every detector adds danger to a pile — but it is the wrong
+ * way to show it. A screen reading "0 / 100" under the word "Safe" looks like
+ * a failing grade, and people read a bar that is nearly empty as bad news no
+ * matter what the label above it says.
+ *
+ * So the number on screen is HEALTH: risk turned inside out. Nothing in the
+ * engine changes — this is a translation at the last possible moment, which is
+ * also why every threshold, test and alert still speaks in risk.
+ */
+export function healthFromRisk(riskScore: number): number {
+  if (!Number.isFinite(riskScore)) return 0;
+  return Math.max(0, Math.min(100, Math.round(100 - riskScore)));
+}
+
+/** h 0-360, s and l as 0-1, out as '#rrggbb'. */
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const second = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const match = lightness - chroma / 2;
+
+  const [r, g, b] =
+    hue < 60 ? [chroma, second, 0] :
+    hue < 120 ? [second, chroma, 0] :
+    hue < 180 ? [0, chroma, second] :
+    hue < 240 ? [0, second, chroma] :
+    hue < 300 ? [second, 0, chroma] :
+    [chroma, 0, second];
+
+  const channel = (value: number) =>
+    Math.round((value + match) * 255).toString(16).padStart(2, '0');
+
+  return `#${channel(r)}${channel(g)}${channel(b)}`;
+}
+
+/**
+ * Green at full health, sliding through amber to red as it falls.
+ *
+ * Continuous rather than four fixed colours, because the whole point of the
+ * gauge is that it MOVES: spending a little too much should visibly warm the
+ * dial, not leave it identical until it crosses an invisible line and jumps.
+ * Hue 0 is red and hue 140 is green, so health maps straight onto it.
+ */
+export function healthColor(health: number): string {
+  const clamped = Math.max(0, Math.min(100, health));
+  return hslToHex((clamped / 100) * 140, 0.72, 0.52);
+}
+
+/** The band, worded as health rather than as risk. */
+export function healthLabel(band: RiskBand): string {
+  if (band === 'Critical') return 'Critical';
+  if (band === 'High Risk') return 'Poor';
+  if (band === 'Caution') return 'Fair';
+  return 'Healthy';
+}
+
 export function categoryIcon(category: TransactionCategory): string {
   const icons: Record<TransactionCategory, string> = {
     income: 'arrow-down-circle',

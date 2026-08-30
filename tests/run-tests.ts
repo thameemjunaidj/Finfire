@@ -15,7 +15,7 @@ import {
   sanitizePersistedState,
 } from '../src/services/financeState';
 import { FinanceDataset, PersistedFinanceState, Transaction } from '../src/types/finance';
-import { plainLabel } from '../src/utils/format';
+import { healthColor, healthFromRisk, plainLabel } from '../src/utils/format';
 import { isValidIsoDate, parseNonNegativeMoney, parsePositiveMoney } from '../src/utils/validation';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -216,6 +216,38 @@ const sanitized = sanitizePersistedState({
 });
 assert(sanitized?.transactions.length === 1, 'stored malformed transaction rows are discarded safely');
 assert(sanitizePersistedState({ broken: true }) === null, 'unrecoverable saved state is rejected');
+
+/* ---- Money health: the same finding, said the way round people read it ---- */
+
+assert(healthFromRisk(0) === 100, 'no risk shows as full health');
+assert(healthFromRisk(100) === 0, 'maximum risk shows as no health');
+assert(healthFromRisk(78) === 22, 'health is risk turned inside out');
+assert(healthFromRisk(Number.NaN) === 0, 'a broken risk score does not render as perfect health');
+// The gauge is only honest if the colour agrees with the number. Full health
+// must be greener than red, and no health must be redder than green — the one
+// thing that would be worse than no colour is the wrong colour.
+const green = healthColor(100);
+const red = healthColor(0);
+assert(green !== red, 'full and empty health are not the same colour');
+assert(parseInt(green.slice(3, 5), 16) > parseInt(green.slice(1, 3), 16), 'full health is green, not red');
+assert(parseInt(red.slice(1, 3), 16) > parseInt(red.slice(3, 5), 16), 'no health is red, not green');
+
+/* ---- Saved state has to survive being loaded again ---- */
+
+// This one is here because it failed silently for weeks: "remember this
+// device" saved the session token correctly and then the loader threw it away,
+// so the app forgot who you were every time it was closed.
+const withSession = sanitizePersistedState({
+  ...baseState,
+  signedInAs: 'someone@example.com',
+  sessionToken: 'abc123',
+  emailVerified: true,
+  dismissedAlertIds: ['alert-1', 42],
+});
+assert(withSession?.sessionToken === 'abc123', 'a saved session token survives a reload');
+assert(withSession?.signedInAs === 'someone@example.com', 'the signed-in address survives a reload');
+assert(withSession?.emailVerified === true, 'a confirmed email stays confirmed across a reload');
+assert(withSession?.dismissedAlertIds?.length === 1, 'acknowledged warnings survive a reload, and junk in the list does not');
 
 assert(isValidIsoDate('2026-08-29'), 'accepts a real ISO date');
 assert(!isValidIsoDate('2026-02-29'), 'rejects an impossible non-leap date');

@@ -45,7 +45,7 @@ export function BackupCard() {
         <Text style={styles.title}>Backup</Text>
         <Text style={styles.body}>
           Backup is not switched on for this build. Everything you enter stays on this phone,
-          and will be lost if the app is removed.
+          and will be lost if the app is removed or you sign out.
         </Text>
       </View>
     );
@@ -127,8 +127,9 @@ export function BackupCard() {
     <View style={styles.card}>
       <Text style={styles.title}>Backup</Text>
       <Text style={styles.body}>
-        Optional. Keeps a copy against your account so you can get your history back if you
-        change phone or reinstall. Everything still works with this switched off.
+        Your spending is saved to your account automatically, a few seconds after each change.
+        Sign in on any phone and it comes back. The buttons below are for forcing it, or for
+        getting rid of it.
       </Text>
       <Text style={styles.account}>{owner || 'Not signed in'}</Text>
 

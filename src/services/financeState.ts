@@ -142,5 +142,23 @@ export function sanitizePersistedState(value: unknown): PersistedFinanceState | 
     recurringPayments: state.recurringPayments.filter(isRecurringPayment),
     onboardingComplete: state.onboardingComplete === true,
     notificationsEnabled: state.notificationsEnabled !== false,
+
+    /**
+     * Everything below this line used to be quietly dropped, and it took a
+     * while to see why, because nothing looked broken — it just meant the app
+     * forgot who you were every time it was closed. "Remember this device"
+     * was implemented, saved to disk correctly, and then discarded here on the
+     * way back in, along with every warning anyone had said "got it" to.
+     *
+     * Whitelisting fields is still the right shape for this function. The
+     * whitelist just has to actually contain them.
+     */
+    signedInAs: typeof state.signedInAs === 'string' ? state.signedInAs : undefined,
+    sessionToken: typeof state.sessionToken === 'string' ? state.sessionToken : undefined,
+    emailVerified: state.emailVerified === true,
+    verificationEmailFailed: state.verificationEmailFailed === true,
+    dismissedAlertIds: Array.isArray(state.dismissedAlertIds)
+      ? state.dismissedAlertIds.filter((id): id is string => typeof id === 'string')
+      : [],
   };
 }

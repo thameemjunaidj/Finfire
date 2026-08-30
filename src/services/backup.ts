@@ -60,9 +60,17 @@ export async function saveBackup(
   token: string,
   state: PersistedFinanceState,
 ): Promise<number | null> {
+  /**
+   * The session token, and who is signed in, are properties of THIS PHONE.
+   * They have no business in a copy that another device will download — a
+   * restored session token would be a live credential sitting in a payload,
+   * and the sign-in flow overwrites all three fields anyway. Strip them.
+   */
+  const { sessionToken, signedInAs, emailVerified, verificationEmailFailed, ...portable } = state;
+
   const result = await post('/backup/save', {
     token,
-    payload: JSON.stringify(state),
+    payload: JSON.stringify(portable),
     transactionCount: state.transactions.length,
   });
   return typeof result?.updatedAt === 'number' ? result.updatedAt : null;

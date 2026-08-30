@@ -12,7 +12,7 @@ import { APP_NAME } from '../theme/brand';
 import { SimulationResult, TransactionCategory } from '../types/finance';
 import { showMessage } from '../utils/alerts';
 import { toIsoDate } from '../utils/dates';
-import { formatCurrency, riskColor , formatWhenKnown } from '../utils/format';
+import { formatCurrency, formatWhenKnown, healthColor, healthFromRisk, healthLabel } from '../utils/format';
 import { isDateOnOrAfter, isValidIsoDate, parsePositiveMoney } from '../utils/validation';
 
 const simulatorCategories: TransactionCategory[] = ['shopping', 'food', 'entertainment', 'transport', 'health', 'other'];
@@ -49,10 +49,13 @@ export function SimulatorScreen() {
     );
     showMessage(shown ? 'Warning sent' : 'Use your phone to test', shown ? 'The local notification is ready.' : 'Browser preview cannot display native notifications.');
   };
+  // The colour of the whole result block, taken from where health lands AFTER
+  // the purchase — which is the thing the person is actually asking about.
+  const verdictColor = result ? healthColor(healthFromRisk(result.after.riskScore)) : colors.safe;
   return (
     <Screen title="Try a purchase" subtitle="See what may happen before you spend the money.">
       <View style={styles.formCard}>
-        <View style={styles.formHeader}><View style={styles.formIcon}><Feather name="sliders" size={20} color={colors.primary} /></View><View><Text style={styles.formTitle}>Check a purchase</Text><Text style={styles.formHelper}>We will update your money score and days left.</Text></View></View>
+        <View style={styles.formHeader}><View style={styles.formIcon}><Feather name="sliders" size={20} color={colors.primary} /></View><View><Text style={styles.formTitle}>Check a purchase</Text><Text style={styles.formHelper}>We will update your money health and days left.</Text></View></View>
         <FormField label="What do you want to buy?" value={description} onChangeText={setDescription} placeholder="e.g. New phone" />
         <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="5000" />
         <View style={styles.quickRow}>{quickAmounts.map((value) => (
@@ -74,17 +77,26 @@ export function SimulatorScreen() {
       </View>
       {result ? (
         <View style={styles.resultWrap}>
-          <View style={[styles.verdict, { borderColor: riskColor(result.verdict), backgroundColor: `${riskColor(result.verdict)}16` }]}>
-            <View><Text style={styles.verdictEyebrow}>RESULT</Text><Text style={[styles.verdictValue, { color: riskColor(result.verdict) }]}>{result.verdict}</Text></View>
-            <Feather name={result.riskChange > 0 ? 'alert-triangle' : 'check-circle'} size={28} color={riskColor(result.verdict)} />
+          <View style={[styles.verdict, { borderColor: verdictColor, backgroundColor: `${verdictColor}16` }]}>
+            <View><Text style={styles.verdictEyebrow}>RESULT</Text><Text style={[styles.verdictValue, { color: verdictColor }]}>{healthLabel(result.verdict)}</Text></View>
+            <Feather name={result.riskChange > 0 ? 'alert-triangle' : 'check-circle'} size={28} color={verdictColor} />
           </View>
           <View style={styles.comparison}>
-            <Comparison label="Money score" before={`${result.before.riskScore}/100`} after={`${result.after.riskScore}/100`} change={result.riskChange} />
+            {/* Health, not risk — and so the arrow now means the opposite of
+                what riskChange says, hence the minus. */}
+            <Comparison
+              label="Money health"
+              before={`${healthFromRisk(result.before.riskScore)}/100`}
+              after={`${healthFromRisk(result.after.riskScore)}/100`}
+              change={-result.riskChange}
+              higherIsBetter
+            />
             <Comparison
               label="How long money may last"
               before={formatWhenKnown(result.before.hasSpendingHistory, `${result.before.runwayDays} days`)}
               after={formatWhenKnown(result.after.hasSpendingHistory, `${result.after.runwayDays} days`)}
               change={result.before.hasSpendingHistory ? result.runwayChange : 0}
+              higherIsBetter
             />
             <Comparison label="Likely month total" before={formatCurrency(result.before.projectedMonthlySpending)} after={formatCurrency(result.after.projectedMonthlySpending)} change={result.after.projectedMonthlySpending - result.before.projectedMonthlySpending} />
           </View>
@@ -102,8 +114,13 @@ export function SimulatorScreen() {
   );
 }
 
-function Comparison({ label, before, after, change }: { label: string; before: string; after: string; change: number }) {
-  const adverse = label === 'How long money may last' ? change < 0 : change > 0;
+/**
+ * `higherIsBetter` used to be inferred by comparing the label to a string,
+ * which quietly broke the moment a label was reworded — and one was, when the
+ * money score became money health. It is a prop now.
+ */
+function Comparison({ label, before, after, change, higherIsBetter = false }: { label: string; before: string; after: string; change: number; higherIsBetter?: boolean }) {
+  const adverse = higherIsBetter ? change < 0 : change > 0;
   return (
     <View style={styles.comparisonRow}>
       <Text style={styles.comparisonLabel}>{label}</Text>

@@ -27,7 +27,15 @@ export default defineSchema({
      *  cannot be replayed from an old email. */
     verifyToken: v.optional(v.string()),
     verifySentAt: v.optional(v.number()),
-  }).index('by_email', ['email']).index('by_verify_token', ['verifyToken']),
+    /** One-time token in a "forgot password" link. Cleared the moment it is
+     *  used, and only valid for an hour — a reset link left sitting in an old
+     *  inbox should not still open the account next term. */
+    resetToken: v.optional(v.string()),
+    resetSentAt: v.optional(v.number()),
+  })
+    .index('by_email', ['email'])
+    .index('by_verify_token', ['verifyToken'])
+    .index('by_reset_token', ['resetToken']),
 
   /** One row per signed-in device. The phone holds the token; we hold the
    *  mapping. Signing out on one phone leaves the others alone. */
@@ -35,7 +43,9 @@ export default defineSchema({
     token: v.string(),
     email: v.string(),
     createdAt: v.number(),
-  }).index('by_token', ['token']),
+    // by_email exists so a password reset can drop every device at once
+    // without walking the whole table.
+  }).index('by_token', ['token']).index('by_email', ['email']),
 
   backups: defineTable({
     /** Lower-cased email or phone the person signed in with. */

@@ -1,4 +1,4 @@
-import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { demoDataset } from '../data/demoData';
 import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEngine';
 import { buildForecast } from '../engine/forecastEngine';
@@ -6,6 +6,7 @@ import { mergeRecurringPayments } from '../engine/recurringDetection';
 import { predictOutcome } from '../engine/predictionEngine';
 import { trainModel } from '../engine/learningEngine';
 import { explainOnDevice } from '../services/ai';
+import { saveBackup } from '../services/backup';
 import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
 import {
   addTransactionToState,
@@ -65,7 +66,23 @@ interface FinanceContextValue extends FinanceDataset {
   sessionToken?: string;
   /** False until the confirmation link is tapped. */
   emailVerified?: boolean;
-  signIn: (email: string, token: string, verified: boolean) => void;
+  /**
+   * Take over the app as this account.
+   *
+   * `restored` is that account's own data, fetched from the server during
+   * sign-in. Passing nothing means starting empty — which is the correct
+   * outcome for a new account, and the important one: what must NEVER happen
+   * is the previous person's spending still being on screen.
+   */
+  signIn: (
+    email: string,
+    token: string,
+    verified: boolean,
+    restored?: PersistedFinanceState | null,
+    emailFailed?: boolean,
+  ) => void;
+  /** True when no confirmation email could be sent, so the gate lets them by. */
+  verificationEmailFailed?: boolean;
   markVerified: () => void;
   /** Acknowledge a warning: it leaves the list and the count drops. */
   dismissAlert: (id: string) => void;
@@ -112,6 +129,36 @@ export function FinanceProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (loaded) void saveFinanceState(state);
+  }, [state, loaded]);
+
+  /**
+   * Keep the server's copy in step with the phone, without anyone pressing
+   * anything.
+   *
+   * Backup used to be a button. That was fine while backup was a nicety, but
+   * the account now OWNS the data — signing out clears the phone — so a copy
+   * that only exists when someone remembered to press a button is a copy that
+   * loses a week of somebody's spending.
+   *
+   * Four seconds of quiet before sending, so typing an amount is one upload
+   * and not one per keystroke, and the previous payload is remembered so that
+   * a re-render with nothing changed does not cost a request. Failures are
+   * ignored on purpose: the phone still has everything, and the next change
+   * tries again.
+   */
+  const lastPushed = useRef<string>('');
+  useEffect(() => {
+    if (!loaded || !state.sessionToken || !state.onboardingComplete) return;
+
+    const payload = JSON.stringify(state);
+    if (payload === lastPushed.current) return;
+
+    const timer = setTimeout(() => {
+      lastPushed.current = payload;
+      void saveBackup(state.sessionToken as string, state);
+    }, 4000);
+
+    return () => clearTimeout(timer);
   }, [state, loaded]);
 
   const dataset = useMemo<FinanceDataset>(() => ({
@@ -171,6 +218,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     signedInAs: state.signedInAs,
     sessionToken: state.sessionToken,
     emailVerified: state.emailVerified,
+    verificationEmailFailed: state.verificationEmailFailed,
     onboardingComplete: state.onboardingComplete,
     notificationsEnabled: state.notificationsEnabled,
     useDemoAccount: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: true, signedInAs: current.signedInAs })),
@@ -205,15 +253,60 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     snapshot: () => state,
     // Keep whoever is signed in — a restore should not log them out of the
     // account they just restored from.
-    restoreState: (restored) => setState({ ...restored, signedInAs: state.signedInAs }),
-    signIn: (email, token, verified) => setState((current) => ({ ...current, signedInAs: email, sessionToken: token, emailVerified: verified })),
+    restoreState: (restored) => setState((current) => ({
+      ...restored,
+      signedInAs: current.signedInAs,
+      sessionToken: current.sessionToken,
+      emailVerified: current.emailVerified,
+    })),
+    /**
+     * The bug this fixes, in full, because it is the worst kind:
+     *
+     * Signing out used to clear only `signedInAs`. Everything else — profile,
+     * a month of payments, the alerts — stayed exactly where it was. The next
+     * person to sign in on that phone was shown the previous person's money
+     * as their own, with their own name on the header. It looked like it was
+     * working. That is what made it dangerous.
+     *
+     * So: sign-in now REPLACES the dataset. Either with what the server holds
+     * for this account, or with nothing at all. The one exception is signing
+     * back in as the same person the phone already had — usually because a
+     * network hiccup made the restore come back empty — where wiping their
+     * local data to "fix" it would be the worse of the two mistakes.
+     */
+    signIn: (email, token, verified, restored, emailFailed) => setState((current) => {
+      const base = restored
+        ?? (current.signedInAs === email ? current : initialState);
+      return {
+        ...base,
+        signedInAs: email,
+        sessionToken: token,
+        emailVerified: verified,
+        verificationEmailFailed: emailFailed === true,
+        // Never inherited from a backup: this is a property of the phone, not
+        // of the account.
+        notificationsEnabled: current.notificationsEnabled,
+      };
+    }),
     markVerified: () => setState((current) => ({ ...current, emailVerified: true })),
     dismissAlert: (id) => setState((current) => (
       (current.dismissedAlertIds ?? []).includes(id)
         ? current
         : { ...current, dismissedAlertIds: [...(current.dismissedAlertIds ?? []), id] }
     )),
-    signOut: () => setState((current) => ({ ...current, signedInAs: undefined, sessionToken: undefined })),
+    /**
+     * Signing out takes the data with it.
+     *
+     * It is a shared-phone app in practice — a hostel room, a friend "just
+     * having a look" — and leaving one person's spending on the sign-in screen
+     * for the next person is not a rough edge, it is a leak. The copy on the
+     * server is what makes this safe to do: sign back in and it all comes
+     * back. Only what is on this phone is being let go of here.
+     */
+    signOut: () => setState((current) => ({
+      ...initialState,
+      notificationsEnabled: current.notificationsEnabled,
+    })),
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
     resetDemo: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: current.notificationsEnabled, signedInAs: current.signedInAs })),
     eraseLocalData: async () => {

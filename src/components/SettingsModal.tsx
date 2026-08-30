@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFinance } from '../context/FinanceContext';
 import { signOutOfAccount } from '../services/auth';
+import { saveBackup } from '../services/backup';
 import { scheduleRiskNotification } from '../services/notifications';
 import { colors, radii, spacing } from '../theme/colors';
 import { APP_NAME } from '../theme/brand';
@@ -26,6 +27,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
     signedInAs,
     sessionToken,
     signOut,
+    snapshot,
     eraseLocalData,
   } = useFinance();
   const [view, setView] = useState<SettingsView>('main');
@@ -52,13 +54,28 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
    */
   const leave = () => confirmAction({
     title: 'Sign out?',
+    // Wording changed when signing out started clearing the phone. It has to
+    // say so — and it has to say the data comes back, or nobody will ever
+    // press it.
     message: signedInAs
-      ? `You will need your password to sign back in as ${signedInAs}. Your spending stays on this phone.`
-      : 'Your spending stays on this phone.',
+      ? `Your spending is saved to ${signedInAs} and will be cleared off this phone, so nobody else who uses it can see it. Sign back in with your password and it all comes back.`
+      : 'Your spending will be cleared off this phone.',
     confirmLabel: 'Sign out',
     destructive: true,
-    onConfirm: () => {
-      if (sessionToken) void signOutOfAccount(sessionToken);
+    onConfirm: async () => {
+      /**
+       * Push one last copy before letting go of the phone's.
+       *
+       * The automatic backup waits four seconds after a change, so anything
+       * entered in the moments before pressing this would otherwise be inside
+       * that window when the local data is cleared — and the session is about
+       * to be destroyed, so the pending upload would be rejected anyway. This
+       * closes both gaps.
+       */
+      if (sessionToken) {
+        await saveBackup(sessionToken, snapshot());
+        void signOutOfAccount(sessionToken);
+      }
       signOut();
       close();
     },
@@ -119,7 +136,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
       essentialMonthlyExpenses,
     });
     setView('main');
-    showMessage('Details updated', 'Your money score and warnings are now up to date.');
+    showMessage('Details updated', 'Your money health and warnings are now up to date.');
   };
 
 
