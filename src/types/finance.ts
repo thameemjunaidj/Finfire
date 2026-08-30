@@ -75,6 +75,14 @@ export interface RiskComponents {
 }
 
 export interface FinancialSummary {
+  /**
+   * Whether there is any recorded spending behind these numbers.
+   *
+   * Without it, a screen cannot tell "your money lasts 0 days" (a finding)
+   * from "we cannot work out how long your money lasts" (no data) — and it
+   * showed the first to someone with ₹15,000 in the bank.
+   */
+  hasSpendingHistory: boolean;
   riskScore: number;
   riskBand: RiskBand;
   riskExplanation: string;

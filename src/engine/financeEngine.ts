@@ -108,6 +108,7 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
     const noMoney = balance <= 0;
 
     return {
+      hasSpendingHistory: false,
       riskScore: noMoney ? 30 : 0,
       riskBand: noMoney ? 'Caution' : 'Safe',
       riskExplanation: noMoney
@@ -370,6 +371,7 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
   }));
 
   return {
+    hasSpendingHistory: true,
     riskScore,
     riskBand,
     riskExplanation,

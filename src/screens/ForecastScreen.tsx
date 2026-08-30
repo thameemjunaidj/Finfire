@@ -75,7 +75,9 @@ function ActionCard({ action, index }: { action: SavingsAction; index: number })
 }
 
 export function ForecastScreen() {
-  const { forecast, prediction, narrative, learned } = useFinance();
+  const { forecast, prediction, narrative, learned, profile, transactions } = useFinance();
+  /** The sample account is the only one whose figures are not the person's own. */
+  const isSample = profile.id.startsWith('demo-');
   const widest = Math.max(
     ...forecast.categories.map((c) => Math.max(c.projectedMonthEnd, c.baselineMonth)),
     1,
@@ -84,6 +86,20 @@ export function ForecastScreen() {
   const savingsShort = !forecast.onTrack;
   const chanceOutOf100 = Math.round(prediction.shortfallProbability * 100);
   const risky = prediction.shortfallProbability >= 0.2;
+
+  if (transactions.length === 0) {
+    return (
+      <Screen title="Your month ahead" subtitle="Nothing to look ahead at yet.">
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>
+            Add a few days of spending on the Spending tab and this fills in: where the month is
+            heading, the chance of running short, and what to cut to change it.
+            {'\n\n'}A week is enough to be useful. A month is enough to be accurate.
+          </Text>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen
@@ -111,15 +127,19 @@ export function ForecastScreen() {
         <Text style={styles.predictionBody}>{narrative.body}</Text>
 
         <View style={styles.methodBox}>
-          {/* Says plainly that this is a sample account, so nobody in the room
-              mistakes a demo figure for a real one — and flags what lands next. */}
-          <View style={styles.demoChip}>
-            <Text style={styles.demoChipText}>Based on the sample spending in this app</Text>
-          </View>
+          {/* This said "sample spending" to everyone, including people looking
+              at their own real money. It now only says so when it is true. */}
+          {isSample ? (
+            <View style={styles.demoChip}>
+              <Text style={styles.demoChipText}>Sample account — not your money</Text>
+            </View>
+          ) : null}
           <Text style={styles.methodTitle}>How we worked this out</Text>
           <Text style={styles.methodText}>{prediction.method}</Text>
           <Text style={styles.methodText}>
-            Based on {prediction.daysObserved} days of sample spending
+            {isSample
+              ? `Based on ${prediction.daysObserved} days of sample spending`
+              : `Based on ${prediction.daysObserved} days of your own spending · ${prediction.confidence} confidence`}
           </Text>
         </View>
       </View>

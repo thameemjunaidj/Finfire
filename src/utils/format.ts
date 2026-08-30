@@ -81,3 +81,15 @@ export function categoryIcon(category: TransactionCategory): string {
   };
   return icons[category];
 }
+
+
+/**
+ * Show a number only when it means something.
+ *
+ * A computed zero and an unknown look identical once they reach the screen,
+ * and the difference matters: "0 days" is a warning, "—" is an admission. Use
+ * this anywhere a figure depends on data the person may not have entered yet.
+ */
+export function formatWhenKnown(known: boolean, value: string): string {
+  return known ? value : '—';
+}

@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFinance } from '../context/FinanceContext';
+import { signOutOfAccount } from '../services/auth';
 import { scheduleRiskNotification } from '../services/notifications';
 import { colors, radii, spacing } from '../theme/colors';
 import { APP_NAME } from '../theme/brand';
@@ -11,6 +12,7 @@ import { formatDate } from '../utils/format';
 import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
 import { BackupCard } from './BackupCard';
 import { FinButton } from './FinButton';
+import { DatePickerField } from './DatePickerField';
 import { FormField } from './FormField';
 
 type SettingsView = 'main' | 'profile';
@@ -21,7 +23,9 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
     notificationsEnabled,
     setNotificationsEnabled,
     updateProfile,
-    resetDemo,
+    signedInAs,
+    sessionToken,
+    signOut,
     eraseLocalData,
   } = useFinance();
   const [view, setView] = useState<SettingsView>('main');
@@ -39,6 +43,44 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
     setNextIncomeDate(profile.nextIncomeDate);
     setEssentials(String(profile.essentialMonthlyExpenses));
   }, [profile, visible]);
+
+  /**
+   * Signing out clears the session on the server as well as this phone, so a
+   * token that leaks from a lost device stops working. It is best-effort: if
+   * the network is down we still forget it locally, because refusing to sign
+   * someone out of their own phone would be the worse failure.
+   */
+  const leave = () => confirmAction({
+    title: 'Sign out?',
+    message: signedInAs
+      ? `You will need your password to sign back in as ${signedInAs}. Your spending stays on this phone.`
+      : 'Your spending stays on this phone.',
+    confirmLabel: 'Sign out',
+    destructive: true,
+    onConfirm: () => {
+      if (sessionToken) void signOutOfAccount(sessionToken);
+      signOut();
+      close();
+    },
+  });
+
+  /**
+   * Wiping the phone.
+   *
+   * Worth keeping even though it is easy to mistake for a testing aid: an app
+   * that claims your data is yours has to have a way to get rid of it that is
+   * not "uninstall and hope". It says plainly that the backup is a separate
+   * thing, because deleting one and assuming the other went too is exactly the
+   * mistake someone would make.
+   */
+  const wipe = () => confirmAction({
+    title: 'Erase everything on this phone?',
+    message: 'Your spending, your details and your settings are removed from this device. '
+      + 'This cannot be undone. Any backup you have saved is separate and stays until you delete it too.',
+    confirmLabel: 'Erase',
+    destructive: true,
+    onConfirm: () => void eraseLocalData().then(close),
+  });
 
   const close = () => {
     setView('main');
@@ -80,24 +122,6 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
     showMessage('Details updated', 'Your money score and warnings are now up to date.');
   };
 
-  const restoreDemo = () => confirmAction({
-    title: 'Restore the sample account?',
-    message: 'This replaces your current details, spending and upcoming bills with the original Arjun sample.',
-    confirmLabel: 'Restore',
-    destructive: true,
-    onConfirm: () => {
-      resetDemo();
-      close();
-    },
-  });
-
-  const erase = () => confirmAction({
-    title: 'Erase your data?',
-    message: 'This removes your details and spending entries from this device.',
-    confirmLabel: 'Erase',
-    destructive: true,
-    onConfirm: () => void eraseLocalData().then(close),
-  });
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
@@ -153,9 +177,9 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
                 </View>
 
                 <FinButton label="Test notification" icon="bell" variant="secondary" disabled={!notificationsEnabled} onPress={() => void testNotification()} />
-                <FinButton label="Restore sample account" icon="refresh-cw" variant="ghost" onPress={restoreDemo} style={styles.action} />
                 <View style={styles.action}><BackupCard /></View>
-                <FinButton label="Erase my data" icon="trash-2" variant="danger" onPress={erase} style={styles.action} />
+                <FinButton label="Sign out" icon="log-out" variant="secondary" onPress={leave} style={styles.action} />
+                <FinButton label="Erase everything on this phone" icon="trash-2" variant="danger" onPress={wipe} style={styles.action} />
                 <Text style={styles.version}>{APP_NAME} 1.1 · Sample, manually added and imported information only</Text>
               </>
             ) : (
@@ -163,8 +187,14 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
                 <FormField label="Your name" value={name} onChangeText={setName} placeholder="e.g. Thameem" />
                 <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="48000" />
                 <FormField label="Money currently available (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
-                <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder="2026-09-01" />
-                <FormField label="Essential bills each month (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
+                <DatePickerField
+                  label="When does your next money arrive?"
+                  value={nextIncomeDate}
+                  onChange={setNextIncomeDate}
+                  earliest={toIsoDate(new Date())}
+                  latest={`${new Date().getFullYear() + 1}-12-31`}
+                />
+<FormField label="Essential bills each month (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
                 <View style={styles.recalculationNote}>
                   <Feather name="refresh-cw" size={16} color={colors.primary} />
                   <Text style={styles.noteText}>Saving updates every warning. Your existing spending entries stay unchanged.</Text>

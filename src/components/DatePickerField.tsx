@@ -60,11 +60,15 @@ interface Props {
   /** 'YYYY-MM-DD' */
   value: string;
   onChange: (value: string) => void;
-  /** Nothing after this can be chosen. Defaults to today. */
+  /** Nothing after this can be chosen. Defaults to today, because a payment
+   *  already made cannot have happened tomorrow. */
   latest?: string;
+  /** Nothing before this can be chosen. Used for dates that must be ahead —
+   *  when your next money arrives cannot be last week. */
+  earliest?: string;
 }
 
-export function DatePickerField({ label, value, onChange, latest }: Props) {
+export function DatePickerField({ label, value, onChange, latest, earliest }: Props) {
   const [open, setOpen] = useState(false);
 
   const selected = value && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -76,6 +80,7 @@ export function DatePickerField({ label, value, onChange, latest }: Props) {
 
   const today = new Date();
   const maximum = latest ?? toKey(today.getFullYear(), today.getMonth(), today.getDate());
+  const minimum = earliest ?? '0000-01-01';
 
   const step = (by: number) => {
     const next = new Date(viewYear, viewMonth + by, 1);
@@ -85,16 +90,15 @@ export function DatePickerField({ label, value, onChange, latest }: Props) {
 
   const choose = (day: number) => {
     const key = toKey(viewYear, viewMonth, day);
-    if (key > maximum) return;
+    if (key > maximum || key < minimum) return;
     onChange(key);
     setOpen(false);
   };
 
   const cells = buildGrid(viewYear, viewMonth);
-  // Do not let people page into months where every day is unselectable.
-  const canGoForward = toKey(viewYear, viewMonth, 1) < maximum.slice(0, 8) + '01'
-    ? true
-    : `${viewYear}-${pad(viewMonth + 1)}` < maximum.slice(0, 7);
+  // Do not page into months where every day is unselectable, in either direction.
+  const canGoForward = `${viewYear}-${pad(viewMonth + 1)}` < maximum.slice(0, 7);
+  const canGoBack = `${viewYear}-${pad(viewMonth + 1)}` > minimum.slice(0, 7);
 
   return (
     <View style={styles.field}>
@@ -117,10 +121,11 @@ export function DatePickerField({ label, value, onChange, latest }: Props) {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Previous month"
+                disabled={!canGoBack}
                 onPress={() => step(-1)}
-                style={styles.stepper}
+                style={[styles.stepper, !canGoBack && styles.stepperOff]}
               >
-                <Feather name="chevron-left" size={18} color={colors.text} />
+                <Feather name="chevron-left" size={18} color={canGoBack ? colors.text : colors.textMuted} />
               </Pressable>
 
               <Text style={styles.monthLabel}>{MONTHS[viewMonth]} {viewYear}</Text>
@@ -148,7 +153,7 @@ export function DatePickerField({ label, value, onChange, latest }: Props) {
 
                 const key = toKey(viewYear, viewMonth, day);
                 const isSelected = key === selected;
-                const isFuture = key > maximum;
+                const isFuture = key > maximum || key < minimum;
 
                 return (
                   <Pressable
@@ -176,7 +181,12 @@ export function DatePickerField({ label, value, onChange, latest }: Props) {
 
             <Pressable
               accessibilityRole="button"
-              onPress={() => { onChange(maximum); setOpen(false); }}
+              onPress={() => {
+                const todayKey = toKey(today.getFullYear(), today.getMonth(), today.getDate());
+                const within = todayKey > maximum ? maximum : todayKey < minimum ? minimum : todayKey;
+                onChange(within);
+                setOpen(false);
+              }}
               style={styles.todayRow}
             >
               <Text style={styles.todayText}>Today</Text>

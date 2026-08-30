@@ -12,7 +12,7 @@ import { APP_NAME } from '../theme/brand';
 import { SimulationResult, TransactionCategory } from '../types/finance';
 import { showMessage } from '../utils/alerts';
 import { toIsoDate } from '../utils/dates';
-import { formatCurrency, riskColor } from '../utils/format';
+import { formatCurrency, riskColor , formatWhenKnown } from '../utils/format';
 import { isDateOnOrAfter, isValidIsoDate, parsePositiveMoney } from '../utils/validation';
 
 const simulatorCategories: TransactionCategory[] = ['shopping', 'food', 'entertainment', 'transport', 'health', 'other'];
@@ -43,7 +43,9 @@ export function SimulatorScreen() {
     if (!result) return;
     const shown = await scheduleRiskNotification(
       `🔥 ${APP_NAME} purchase warning`,
-      `This ${formatCurrency(result.input.amount)} purchase could reduce how long your money lasts from ${result.before.runwayDays} to ${result.after.runwayDays} days.`,
+      result.before.hasSpendingHistory
+        ? `This ${formatCurrency(result.input.amount)} purchase could reduce how long your money lasts from ${result.before.runwayDays} to ${result.after.runwayDays} days.`
+        : `This ${formatCurrency(result.input.amount)} purchase would leave you with ${formatCurrency(result.after.disposableBalance)}. Add some spending and I can also tell you how long that would last.`,
     );
     showMessage(shown ? 'Warning sent' : 'Use your phone to test', shown ? 'The local notification is ready.' : 'Browser preview cannot display native notifications.');
   };
@@ -78,7 +80,12 @@ export function SimulatorScreen() {
           </View>
           <View style={styles.comparison}>
             <Comparison label="Money score" before={`${result.before.riskScore}/100`} after={`${result.after.riskScore}/100`} change={result.riskChange} />
-            <Comparison label="How long money may last" before={`${result.before.runwayDays} days`} after={`${result.after.runwayDays} days`} change={result.runwayChange} />
+            <Comparison
+              label="How long money may last"
+              before={formatWhenKnown(result.before.hasSpendingHistory, `${result.before.runwayDays} days`)}
+              after={formatWhenKnown(result.after.hasSpendingHistory, `${result.after.runwayDays} days`)}
+              change={result.before.hasSpendingHistory ? result.runwayChange : 0}
+            />
             <Comparison label="Likely month total" before={formatCurrency(result.before.projectedMonthlySpending)} after={formatCurrency(result.after.projectedMonthlySpending)} change={result.after.projectedMonthlySpending - result.before.projectedMonthlySpending} />
           </View>
           <View style={styles.advice}>

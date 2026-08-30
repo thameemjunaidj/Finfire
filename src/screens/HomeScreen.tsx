@@ -10,10 +10,10 @@ import { useFinance } from '../context/FinanceContext';
 import { colors, radii, spacing } from '../theme/colors';
 import { FinancialAlert } from '../types/finance';
 import { toIsoDate } from '../utils/dates';
-import { formatCurrency, formatDate, riskColor } from '../utils/format';
+import { formatCurrency, formatDate, formatWhenKnown, riskColor } from '../utils/format';
 
 export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () => void; onOpenSettings: () => void }) {
-  const { profile, summary } = useFinance();
+  const { profile, summary, transactions } = useFinance();
   const [selectedAlert, setSelectedAlert] = useState<FinancialAlert | null>(null);
   const maxSpend = Math.max(...summary.monthlySpend.map((item) => item.amount), 1);
   const dashboardDate = profile.analysisDate ?? toIsoDate(new Date());
@@ -21,7 +21,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
   return (
     <>
       <Screen
-        title={`Hello, ${profile.name}`}
+        title={profile.name ? `Hello, ${profile.name}` : 'Your money'}
         subtitle={`${month} · A simple look at your money`}
         action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
       >
@@ -29,6 +29,23 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
           <Feather name={profile.id.startsWith('demo-') ? 'play-circle' : 'lock'} size={14} color={colors.primary} />
           <Text style={styles.dataStatusText}>{profile.id.startsWith('demo-') ? 'SAMPLE ACCOUNT' : 'YOUR DATA'} · Updated {formatDate(dashboardDate, true)}</Text>
         </View>
+        {/* A brand-new account used to land on a screen of zeroes with no clue
+            what to do. Everything below needs spending to mean anything, so
+            until there is some, this is the whole screen. */}
+        {transactions.length === 0 ? (
+          <View style={styles.firstRun}>
+            <Feather name="plus-circle" size={28} color={colors.primary} />
+            <Text style={styles.firstRunTitle}>Add your first few payments</Text>
+            <Text style={styles.firstRunText}>
+              Go to the Spending tab and add what you have spent — by hand, or import a statement
+              from your bank. Once there are a few days in here, this screen starts warning you
+              about what is coming.
+            </Text>
+          </View>
+        ) : null}
+
+        {transactions.length > 0 ? (
+          <>
         <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
         {/* Two metrics, not four. Projected spend and upcoming payments both
             now live on the Forecast tab, where they have room to be explained;
@@ -36,7 +53,15 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             as a wall of numbers. */}
         <View style={styles.metrics}>
           <MetricCard label="Money left" value={formatCurrency(summary.disposableBalance)} helper={`${formatCurrency(summary.protectedBalance)} after essential bills`} icon="credit-card" accent={colors.safe} />
-          <MetricCard label="How long it may last" value={`${summary.runwayDays} days`} helper="Based on your recent optional spending" icon="battery-charging" accent={riskColor(summary.riskBand)} />
+          <MetricCard
+            label="How long it may last"
+            value={formatWhenKnown(summary.hasSpendingHistory, `${summary.runwayDays} days`)}
+            helper={summary.hasSpendingHistory
+              ? 'Based on your recent optional spending'
+              : 'Add some spending and I can work this out'}
+            icon="battery-charging"
+            accent={riskColor(summary.riskBand)}
+          />
         </View>
         <SectionTitle title="Monthly spending" />
         <View style={styles.chartCard}>
@@ -63,7 +88,9 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
             <Feather name="arrow-right" size={14} color={colors.textMuted} />
           </Pressable>
         ) : null}
-        {!summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>Everything looks okay</Text><Text style={styles.emptyText}>We will tell you when something needs attention.</Text></View> : null}
+          </>
+        ) : null}
+        {transactions.length > 0 && !summary.alerts.length ? <View style={styles.empty}><Feather name="check-circle" size={26} color={colors.safe} /><Text style={styles.emptyTitle}>Everything looks okay</Text><Text style={styles.emptyText}>We will tell you when something needs attention.</Text></View> : null}
       </Screen>
       <AlertDetailsModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
     </>
@@ -71,6 +98,13 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
 }
 
 const styles = StyleSheet.create({
+  firstRun: {
+    alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary,
+    borderRadius: radii.lg, padding: spacing.xl, marginBottom: spacing.lg,
+  },
+  firstRunTitle: { color: colors.text, fontSize: 17, fontWeight: '900' },
+  firstRunText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: 'center' },
   settings: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   dataStatus: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: `${colors.primary}55`, borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 7, marginBottom: spacing.md },
   dataStatusText: { color: colors.primary, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.5 },
