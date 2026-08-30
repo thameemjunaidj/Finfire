@@ -10,6 +10,7 @@ import { APP_NAME } from '../theme/brand';
 import { confirmAction, showMessage } from '../utils/alerts';
 import { toIsoDate } from '../utils/dates';
 import { formatDate } from '../utils/format';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
 import { BackupCard } from './BackupCard';
 import { FinButton } from './FinButton';
@@ -30,6 +31,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
     snapshot,
     eraseLocalData,
   } = useFinance();
+  const keyboard = useKeyboardHeight();
   const [view, setView] = useState<SettingsView>('main');
   const [name, setName] = useState(profile.name);
   const [income, setIncome] = useState(String(profile.monthlyIncome));
@@ -142,7 +144,11 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <Pressable style={styles.backdrop} onPress={close}>
+      {/* paddingBottom is the keyboard fix: edge-to-edge stopped Android
+          resizing the window, and a Modal never got that treatment anyway.
+          Shrinking the backdrop shrinks the sheet inside it, so a field near
+          the bottom can be scrolled up into what is left. */}
+      <Pressable style={[styles.backdrop, { paddingBottom: keyboard + spacing.lg }]} onPress={close}>
         <Pressable style={styles.panel} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}>
             <View style={styles.headerText}>
@@ -155,7 +161,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
               <Text style={styles.title}>{view === 'profile' ? 'Edit your money details' : 'Settings & privacy'}</Text>
               <Text style={styles.subtitle}>{view === 'profile' ? `Information updated to ${formatDate(profile.analysisDate ?? toIsoDate(new Date()), true)}` : 'Your information stays on this device.'}</Text>
             </View>
-            <Pressable accessibilityLabel="Close settings" onPress={close} style={styles.close}>
+            <Pressable accessibilityLabel="Close settings" onPress={close} hitSlop={12} style={styles.close}>
               <Feather name="x" size={20} color={colors.text} />
             </Pressable>
           </View>

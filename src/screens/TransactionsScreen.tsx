@@ -16,12 +16,14 @@ import { colors, radii, spacing } from '../theme/colors';
 import { Transaction, TransactionCategory, TransactionDirection, TRANSACTION_CATEGORIES } from '../types/finance';
 import { confirmAction, showMessage } from '../utils/alerts';
 import { toIsoDate } from '../utils/dates';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { isValidIsoDate, parsePositiveMoney } from '../utils/validation';
 
 type CategoryFilter = 'all' | TransactionCategory;
 
 export function TransactionsScreen() {
   const { transactions, profile, addTransaction, deleteTransaction, importTransactions, setTransactionCategory } = useFinance();
+  const keyboard = useKeyboardHeight();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<CategoryFilter>('all');
   const [addVisible, setAddVisible] = useState(false);
@@ -166,11 +168,11 @@ export function TransactionsScreen() {
       </Screen>
 
       <Modal visible={addVisible} transparent animationType="slide" onRequestClose={() => setAddVisible(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setAddVisible(false)}>
+        <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={() => setAddVisible(false)}>
           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add money in or out</Text>
-              <Pressable accessibilityLabel="Close add money form" onPress={() => setAddVisible(false)}>
+              <Pressable accessibilityLabel="Close add money form" onPress={() => setAddVisible(false)} hitSlop={14}>
                 <Feather name="x" size={22} color={colors.text} />
               </Pressable>
             </View>
@@ -206,11 +208,11 @@ export function TransactionsScreen() {
 
       {/* ---- Correcting a payment ---- */}
       <Modal visible={editing !== null} transparent animationType="slide" onRequestClose={() => setEditing(null)}>
-        <Pressable style={styles.backdrop} onPress={() => setEditing(null)}>
+        <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={() => setEditing(null)}>
           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editing?.merchant}</Text>
-              <Pressable accessibilityLabel="Close" onPress={() => setEditing(null)}>
+              <Pressable accessibilityLabel="Close" onPress={() => setEditing(null)} hitSlop={14}>
                 <Feather name="x" size={22} color={colors.text} />
               </Pressable>
             </View>

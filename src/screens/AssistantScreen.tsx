@@ -8,10 +8,8 @@
  */
 
 import { Feather } from '@expo/vector-icons';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +22,7 @@ import { useFinance } from '../context/FinanceContext';
 import { answerQuestion, STARTER_QUESTIONS } from '../engine/assistantEngine';
 import { askLanguageModel, buildFigures, isLanguageModelAvailable } from '../services/gemini';
 import { colors, radii, spacing } from '../theme/colors';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 interface Message {
   id: string;
@@ -51,6 +50,19 @@ export function AssistantScreen() {
   const [suggestions, setSuggestions] = useState<string[]>(STARTER_QUESTIONS);
   const [draft, setDraft] = useState('');
   const scroller = useRef<ScrollView>(null);
+  const keyboard = useKeyboardHeight();
+
+  /**
+   * When the keyboard arrives the thread gets shorter, so the last thing said
+   * scrolls off the top. Follow it down, or the reply you are asking about
+   * disappears the moment you start typing.
+   */
+  useEffect(() => {
+    if (keyboard > 0) {
+      const timer = setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), 80);
+      return () => clearTimeout(timer);
+    }
+  }, [keyboard]);
 
   const ask = useCallback(async (question: string) => {
     const trimmed = question.trim();
@@ -94,11 +106,16 @@ export function AssistantScreen() {
   }, [profile, summary, forecast, prediction, learned, transactions]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={12}
-    >
+    /**
+     * Shrink the whole screen by the height of the keyboard, by hand.
+     *
+     * This used to be a KeyboardAvoidingView with `behavior` unset on Android,
+     * which on Android means it does nothing and leaves the work to the OS
+     * resizing the window — and edge-to-edge stopped the OS doing that. The
+     * result was the keyboard sitting squarely on top of the box you were
+     * typing into, with no way to see what you had written.
+     */
+    <View style={[styles.screen, { paddingBottom: keyboard }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Ask</Text>
         <View style={styles.offlineChip}>
@@ -149,7 +166,11 @@ export function AssistantScreen() {
         </ScrollView>
       ) : null}
 
-      <View style={styles.composer}>
+      {/* 96px of clearance for the floating tab bar, but only while the tab
+          bar is visible. With the keyboard up it is behind the keyboard, and
+          that clearance becomes a strip of dead space wedged between what you
+          are typing and the keyboard. */}
+      <View style={[styles.composer, keyboard > 0 && styles.composerWithKeyboard]}>
         <TextInput
           style={styles.input}
           value={draft}
@@ -169,7 +190,7 @@ export function AssistantScreen() {
           <Feather name="arrow-up" size={18} color={colors.black} />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -217,6 +238,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 96,
   },
+  composerWithKeyboard: { paddingBottom: spacing.md },
   input: {
     flex: 1, color: colors.text, fontSize: 14,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,

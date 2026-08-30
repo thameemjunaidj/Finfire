@@ -23,7 +23,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () 
       <Screen
         title={profile.name ? `Hello, ${profile.name}` : 'Your money'}
         subtitle={`${month} · A simple look at your money`}
-        action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
+        action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} hitSlop={10} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
       >
         <View style={styles.dataStatus} accessible accessibilityLabel={`${profile.id.startsWith('demo-') ? 'Demo' : 'Local'} data evaluated ${formatDate(dashboardDate, true)}`}>
           <Feather name={profile.id.startsWith('demo-') ? 'play-circle' : 'lock'} size={14} color={colors.primary} />

@@ -29,8 +29,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -52,6 +50,7 @@ import { fetchBackup } from '../services/backup';
 import { APP_NAME } from '../theme/brand';
 import { colors, radii, spacing } from '../theme/colors';
 import { PersistedFinanceState } from '../types/finance';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 type Stage = 'in' | 'up' | 'forgot' | 'forgot-sent';
 
@@ -82,6 +81,7 @@ export function SignInScreen({ onSignedIn }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const keyboard = useKeyboardHeight();
 
   /** One tick a second while a cooldown is running, then it stops itself. */
   useEffect(() => {
@@ -252,7 +252,7 @@ export function SignInScreen({ onSignedIn }: Props) {
 
   if (stage === 'forgot') {
     return (
-      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={[styles.screen, { paddingBottom: keyboard }]}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.brand}>
             <View style={styles.tick}>
@@ -299,14 +299,17 @@ export function SignInScreen({ onSignedIn }: Props) {
             <Text style={styles.ghostText}>Back to sign in</Text>
           </Pressable>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
     );
   }
 
   /* ---- Sign in / sign up ---- */
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // The sign-in fields sit low on the screen and the keyboard covered them
+    // outright on Android, where edge-to-edge stops the window being resized.
+    // Shrinking the container by the keyboard's own height puts them back.
+    <View style={[styles.screen, { paddingBottom: keyboard }]}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.brand}>
           <Image
@@ -353,6 +356,7 @@ export function SignInScreen({ onSignedIn }: Props) {
             accessibilityRole="button"
             accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
             onPress={() => setShowPassword((current) => !current)}
+            hitSlop={12}
             style={styles.eye}
           >
             <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#6B6B6B" />
@@ -433,7 +437,7 @@ export function SignInScreen({ onSignedIn }: Props) {
             : 'Accounts are not switched on in this build.'}
         </Text>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

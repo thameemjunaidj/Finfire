@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { FinButton } from '../components/FinButton';
 import { FormField } from '../components/FormField';
 import { useFinance } from '../context/FinanceContext';
@@ -8,11 +8,13 @@ import { colors, radii, spacing } from '../theme/colors';
 import { APP_NAME, APP_TAGLINE } from '../theme/brand';
 import { UserProfile } from '../types/finance';
 import { addDays, toIsoDate } from '../utils/dates';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
 
 export function OnboardingScreen() {
   const today = toIsoDate(new Date());
   const { useDemoAccount, completeCustomSetup } = useFinance();
+  const keyboard = useKeyboardHeight();
   const [custom, setCustom] = useState(false);
   const [name, setName] = useState('');
   const [income, setIncome] = useState('');
@@ -43,7 +45,9 @@ export function OnboardingScreen() {
     completeCustomSetup(profile);
   };
   return (
-    <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // Shrunk by hand rather than by KeyboardAvoidingView, which does nothing
+    // on Android once edge-to-edge stops the window being resized.
+    <View style={[styles.page, { paddingBottom: keyboard }]}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.brandIcon}><Feather name="shield" size={34} color={colors.primary} /></View>
         <Text style={styles.brand}>{APP_NAME}</Text>
@@ -75,7 +79,7 @@ export function OnboardingScreen() {
           </View>
         )}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

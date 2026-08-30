@@ -7,6 +7,7 @@ import { TransactionCategory, TRANSACTION_CATEGORIES } from '../types/finance';
 import { formatCurrency, formatDate, plainLabel } from '../utils/format';
 import { confirmAction, showMessage } from '../utils/alerts';
 import { toIsoDate } from '../utils/dates';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
 import { ChoiceChips } from './ChoiceChips';
 import { FinButton } from './FinButton';
@@ -16,6 +17,7 @@ const paymentCategories = TRANSACTION_CATEGORIES.filter((category) => category !
 
 export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { profile, recurringPayments, addRecurringPayment, deleteRecurringPayment } = useFinance();
+  const keyboard = useKeyboardHeight();
   const [adding, setAdding] = useState(false);
   const [merchant, setMerchant] = useState('');
   const [previousAmount, setPreviousAmount] = useState('');
@@ -71,7 +73,7 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <Pressable style={styles.backdrop} onPress={close}>
+      <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={close}>
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}>
             <View style={styles.headerText}>
