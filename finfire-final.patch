@@ -1,0 +1,2437 @@
+From 98a21925a7d0b652457244832dce5e9969e5bf26 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 09:18:33 +0000
+Subject: [PATCH 1/2] Tie the data to the account, and show health instead of
+ risk
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Six changes, one of which was a data leak.
+
+Signing out only cleared the email address. The profile, the payments,
+the alerts all stayed on the phone, so the next person to sign in was
+shown someone else's money under their own name — and it looked like it
+was working, which is what made it dangerous. Sign-out now clears the
+phone, sign-in downloads that account's own data before handing the app
+over, and backup runs automatically a few seconds after each change
+rather than waiting for a button nobody presses.
+
+While in there: sanitizePersistedState was silently dropping the session
+token and the dismissed-alert list on every load, so "remember this
+device" was saved correctly and then thrown away on the way back in.
+
+The gauge showed raw risk, so somebody in perfect shape saw a white
+"0 / 100" above an empty bar. It shows health now — risk turned inside
+out at the last moment before pixels, green sliding to red as it falls.
+The engine still speaks in risk, so no threshold or test moved.
+
+Confirming an email had a "Continue to the app" button under it, which
+meant nobody ever confirmed anything. It is a screen of its own now and
+it waits, polling every four seconds and immediately on foreground, so
+tapping the link in a mail app advances it before you look back. Brevo
+accepts a send and rejects it afterwards, so a quiet way past appears
+after two minutes — otherwise a rejected sender strands everyone.
+
+Also: a 60-second countdown on both resend buttons, matching the
+server's own limit, and a forgotten-password flow — in-app request, a
+one-use link that expires in an hour, a web form for the new password,
+and every device signed out once it is used.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017qsfq3JXWhwEdcaLUroXZy
+---
+ App.tsx                           |  27 ++-
+ convex/auth.ts                    |  97 +++++++++++
+ convex/http.ts                    | 210 ++++++++++++++++++++--
+ convex/schema.ts                  |  14 +-
+ src/components/BackupCard.tsx     |   7 +-
+ src/components/RiskGauge.tsx      |  35 +++-
+ src/components/SettingsModal.tsx  |  27 ++-
+ src/context/FinanceContext.tsx    | 103 ++++++++++-
+ src/screens/HomeScreen.tsx        |   4 +-
+ src/screens/SignInScreen.tsx      | 265 ++++++++++++++++++++++------
+ src/screens/SimulatorScreen.tsx   |  33 +++-
+ src/screens/VerifyEmailScreen.tsx | 281 ++++++++++++++++++++++++++++++
+ src/services/auth.ts              |  38 ++++
+ src/services/backup.ts            |  10 +-
+ src/services/financeState.ts      |  18 ++
+ src/theme/colors.ts               |  10 ++
+ src/types/finance.ts              |  10 ++
+ src/utils/format.ts               |  61 +++++++
+ tests/run-tests.ts                |  34 +++-
+ 19 files changed, 1178 insertions(+), 106 deletions(-)
+ create mode 100644 src/screens/VerifyEmailScreen.tsx
+
+diff --git a/App.tsx b/App.tsx
+index 61e519c..e2c794b 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -14,6 +14,7 @@ import { OnboardingScreen } from './src/screens/OnboardingScreen';
+ import { SignInScreen } from './src/screens/SignInScreen';
+ import { SimulatorScreen } from './src/screens/SimulatorScreen';
+ import { TransactionsScreen } from './src/screens/TransactionsScreen';
++import { VerifyEmailScreen } from './src/screens/VerifyEmailScreen';
+ import { initializeNotifications } from './src/services/notifications';
+ import { colors } from './src/theme/colors';
+ 
+@@ -31,7 +32,7 @@ LogBox.ignoreLogs([
+ ]);
+ 
+ function FinFireApp() {
+-  const { loaded, onboardingComplete, signedInAs, signIn, summary } = useFinance();
++  const { loaded, onboardingComplete, signedInAs, emailVerified, signIn, summary } = useFinance();
+   const [tab, setTab] = useState<AppTab>('home');
+   const [settingsVisible, setSettingsVisible] = useState(false);
+   useEffect(() => {
+@@ -40,8 +41,28 @@ function FinFireApp() {
+   if (!loaded) {
+     return <View style={styles.loading}><ActivityIndicator color={colors.primary} size="large" /></View>;
+   }
+-  // Sign in, then set up the account, then the app itself.
+-  if (!signedInAs) return <SignInScreen onSignedIn={(account) => signIn(account.email, account.token, account.verified)} />;
++  /**
++   * Four doors, in order, and each one has to be passed to reach the next:
++   *
++   *   1. Sign in or create an account
++   *   2. Confirm the email address     <- new, and it waits
++   *   3. Set the account up
++   *   4. The app
++   *
++   * Confirmation sits at step 2 rather than being something you can get to
++   * later from Settings, because the address is what the account IS: it is
++   * where a password reset goes, and it is the name the spending is filed
++   * under. An unconfirmed address is a guess.
++   */
++  if (!signedInAs) {
++    return (
++      <SignInScreen
++        onSignedIn={(account, restored, emailFailed) =>
++          signIn(account.email, account.token, account.verified, restored, emailFailed)}
++      />
++    );
++  }
++  if (!emailVerified) return <VerifyEmailScreen />;
+   if (!onboardingComplete) return <OnboardingScreen />;
+   return (
+     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
+diff --git a/convex/auth.ts b/convex/auth.ts
+index 961abd6..8beef04 100644
+--- a/convex/auth.ts
++++ b/convex/auth.ts
+@@ -186,6 +186,103 @@ export const newVerifyToken = mutation({
+   },
+ });
+ 
++/* ------------------------------------------------------------------ */
++/* Forgotten passwords                                                  */
++/* ------------------------------------------------------------------ */
++
++/**
++ * Start a reset.
++ *
++ * Note what this returns when the address is unknown: `{ ok: true }`, exactly
++ * as if it had worked. Saying "no account with that email" would turn this
++ * endpoint into a way to test whether any given person has an account here,
++ * which is not information worth handing out to get a marginally friendlier
++ * error message. The HTTP layer sends mail only when a token comes back.
++ */
++export const requestReset = mutation({
++  args: { email: v.string() },
++  handler: async (ctx, args) => {
++    const email = normalise(args.email);
++    const user = await ctx.db
++      .query('users').withIndex('by_email', (q) => q.eq('email', email)).unique();
++
++    // Every path returns the same SHAPE, with empty strings standing in for
++    // "nothing to send". A union of different shapes here is a type the HTTP
++    // layer cannot read a token off without a cast, and a cast is how the
++    // wrong branch gets treated as the right one later.
++    if (!user) return { ok: true, email: '', resetToken: '' };
++
++    // Same one-a-minute limit as the verification link, and for the same
++    // reason: without it, anyone can use this to bury a stranger's inbox.
++    if (user.resetSentAt && Date.now() - user.resetSentAt < 60_000) {
++      return { ok: true, email: '', resetToken: '' };
++    }
++
++    const resetToken = randomHex(24);
++    await ctx.db.patch(user._id, { resetToken, resetSentAt: Date.now() });
++    return { ok: true, email: user.email, resetToken };
++  },
++});
++
++/** Whether a reset link is still good, checked before showing the form. */
++export const checkReset = query({
++  args: { resetToken: v.string() },
++  handler: async (ctx, args) => {
++    if (!args.resetToken) return { valid: false, email: '' };
++    const user = await ctx.db
++      .query('users')
++      .withIndex('by_reset_token', (q) => q.eq('resetToken', args.resetToken))
++      .unique();
++    if (!user || !user.resetSentAt || Date.now() - user.resetSentAt > 60 * 60_000) {
++      return { valid: false, email: '' };
++    }
++    return { valid: true, email: user.email };
++  },
++});
++
++/**
++ * Finish a reset: new password, token burned, every session dropped.
++ *
++ * Dropping the sessions is the part that is easy to leave out and matters
++ * most. Someone resets their password precisely because they think another
++ * person might have it — leaving that person's phone signed in defeats the
++ * whole exercise.
++ */
++export const resetPassword = mutation({
++  args: { resetToken: v.string(), password: v.string() },
++  handler: async (ctx, args) => {
++    if (args.password.length < 8) return { error: 'Use at least 8 characters for your password.', email: '' };
++
++    const user = await ctx.db
++      .query('users')
++      .withIndex('by_reset_token', (q) => q.eq('resetToken', args.resetToken))
++      .unique();
++
++    if (!user || !user.resetSentAt || Date.now() - user.resetSentAt > 60 * 60_000) {
++      return { error: 'That link has already been used, or has expired. Ask for a new one.', email: '' };
++    }
++
++    const salt = randomHex(16);
++    const hash = await hashPassword(args.password, salt);
++    await ctx.db.patch(user._id, {
++      salt,
++      hash,
++      resetToken: undefined,
++      resetSentAt: undefined,
++      // Reaching the inbox proves the address as well as any link does, so a
++      // completed reset also confirms an account that was never confirmed.
++      verified: true,
++      verifyToken: undefined,
++    });
++
++    const sessions = await ctx.db
++      .query('sessions').withIndex('by_email', (q) => q.eq('email', user.email)).collect();
++    for (const session of sessions) await ctx.db.delete(session._id);
++
++    return { error: '', email: user.email };
++  },
++});
++
+ /** Whether this session's address has been verified. */
+ export const isVerified = query({
+   args: { token: v.string() },
+diff --git a/convex/http.ts b/convex/http.ts
+index 2e11b65..9ed3fc2 100644
+--- a/convex/http.ts
++++ b/convex/http.ts
+@@ -166,11 +166,17 @@ const ask = httpAction(async (_ctx, request) => {
+  * If the key is missing the account is still created — email is a nicety, not
+  * a gate. The app shows an unverified badge instead of failing the sign-up.
+  */
+-async function sendVerificationEmail(
+-  email: string,
+-  verifyToken: string,
+-  origin: string,
+-): Promise<boolean> {
++interface Letter {
++  to: string;
++  subject: string;
++  heading: string;
++  body: string;
++  buttonLabel: string;
++  link: string;
++  footnote: string;
++}
++
++async function sendMail(letter: Letter): Promise<boolean> {
+   const key = process.env.BREVO_API_KEY;
+   if (!key) return false;
+ 
+@@ -178,8 +184,6 @@ async function sendVerificationEmail(
+   const fromName = process.env.MAIL_FROM_NAME || 'Fin Extinguisher';
+   if (!fromEmail) return false;
+ 
+-  const link = `${origin}/auth/verify?token=${verifyToken}`;
+-
+   try {
+     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+       method: 'POST',
+@@ -190,14 +194,14 @@ async function sendVerificationEmail(
+       },
+       body: JSON.stringify({
+         sender: { name: fromName, email: fromEmail },
+-        to: [{ email }],
+-        subject: 'Confirm your email for Fin Extinguisher',
++        to: [{ email: letter.to }],
++        subject: letter.subject,
+         htmlContent: `<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;padding:32px">
+ <div style="max-width:480px;margin:0 auto">
+-<h1 style="font-size:22px;margin:0 0 16px">Confirm your email</h1>
+-<p style="color:#b5b5b5;line-height:1.6;margin:0 0 24px">Tap the button to confirm this address for Fin Extinguisher. It lets you back your spending up and get it back if you change phone.</p>
+-<a href="${link}" style="display:inline-block;background:#FF1A0D;color:#000;font-weight:800;text-decoration:none;padding:14px 28px;border-radius:999px">Confirm email</a>
+-<p style="color:#7a7a7a;font-size:12px;line-height:1.6;margin:28px 0 0">If you did not create an account, ignore this — nothing will happen.</p>
++<h1 style="font-size:22px;margin:0 0 16px">${letter.heading}</h1>
++<p style="color:#b5b5b5;line-height:1.6;margin:0 0 24px">${letter.body}</p>
++<a href="${letter.link}" style="display:inline-block;background:#FF1A0D;color:#000;font-weight:800;text-decoration:none;padding:14px 28px;border-radius:999px">${letter.buttonLabel}</a>
++<p style="color:#7a7a7a;font-size:12px;line-height:1.6;margin:28px 0 0">${letter.footnote}</p>
+ </div></body></html>`,
+       }),
+     });
+@@ -215,6 +219,38 @@ async function sendVerificationEmail(
+   }
+ }
+ 
++async function sendVerificationEmail(
++  email: string,
++  verifyToken: string,
++  origin: string,
++): Promise<boolean> {
++  return sendMail({
++    to: email,
++    subject: 'Confirm your email for Fin Extinguisher',
++    heading: 'Confirm your email',
++    body: 'Tap the button to confirm this address. The app is waiting on this screen and will move on by itself the moment you do — you do not need to type anything back into it.',
++    buttonLabel: 'Confirm email',
++    link: `${origin}/auth/verify?token=${verifyToken}`,
++    footnote: 'If you did not create an account, ignore this — nothing will happen.',
++  });
++}
++
++async function sendResetEmail(
++  email: string,
++  resetToken: string,
++  origin: string,
++): Promise<boolean> {
++  return sendMail({
++    to: email,
++    subject: 'Reset your Fin Extinguisher password',
++    heading: 'Set a new password',
++    body: 'Tap the button to choose a new password for Fin Extinguisher. The link works once and stops working after an hour.',
++    buttonLabel: 'Choose a new password',
++    link: `${origin}/auth/reset?token=${resetToken}`,
++    footnote: 'If you did not ask for this, ignore it. Your password stays as it is.',
++  });
++}
++
+ /** The page someone lands on after tapping the link. */
+ function verificationPage(heading: string, detail: string): Response {
+   return new Response(
+@@ -235,7 +271,10 @@ const verify = httpAction(async (ctx, request) => {
+   if (result.error) {
+     return verificationPage('That link did not work', String(result.error));
+   }
+-  return verificationPage('Email confirmed', 'You can close this and go back to the app.');
++  return verificationPage(
++    'Email confirmed',
++    'You can close this. The app has already noticed and moved on by itself.',
++  );
+ });
+ 
+ const resendVerification = httpAction(async (ctx, request) => {
+@@ -252,6 +291,143 @@ const resendVerification = httpAction(async (ctx, request) => {
+   }
+ });
+ 
++/**
++ * "Is this account confirmed yet?"
++ *
++ * The app sits on the confirmation screen and asks this every few seconds.
++ * That is the whole trick behind the screen moving on by itself: the link is
++ * opened in a browser, which cannot talk to the phone, so the phone has to be
++ * the one that notices. Polling is unglamorous and it is also the only thing
++ * that works without push notifications or a deep link, both of which need a
++ * development build this project does not have time for.
++ */
++const authStatus = httpAction(async (ctx, request) => {
++  try {
++    const body = await request.json();
++    const result = await ctx.runQuery(api.auth.isVerified, { token: String(body.token ?? '') });
++    // A null result means the session is gone — signed out elsewhere, or the
++    // password was reset. The app treats that as "sign in again".
++    return new Response(JSON.stringify(result ?? { expired: true }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
++  } catch (error) {
++    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
++  }
++});
++
++/* ------------------------------------------------------------------ */
++/* Forgotten passwords                                                 */
++/* ------------------------------------------------------------------ */
++
++const forgotPassword = httpAction(async (ctx, request) => {
++  try {
++    const body = await request.json();
++    const result = await ctx.runMutation(api.auth.requestReset, { email: String(body.email ?? '') });
++
++    // A token comes back only for a real, un-throttled account. Either way the
++    // app is told the same thing, so this cannot be used to find out who has
++    // an account here.
++    if (result.resetToken && result.email) {
++      await sendResetEmail(result.email, result.resetToken, new URL(request.url).origin);
++    }
++    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
++  } catch (error) {
++    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
++  }
++});
++
++/**
++ * The new-password form, served as a web page.
++ *
++ * The alternative was mailing a six-digit code and collecting it in the app,
++ * which is a nicer flow and about four more screens of work. This keeps the
++ * whole reset inside the one tap the person already made, and hands them back
++ * to the app to sign in normally afterwards.
++ */
++const resetPage = httpAction(async (ctx, request) => {
++  const token = new URL(request.url).searchParams.get('token') ?? '';
++  const check = await ctx.runQuery(api.auth.checkReset, { resetToken: token });
++
++  if (!check.valid) {
++    return verificationPage(
++      'That link no longer works',
++      'Reset links last an hour and can only be used once. Open the app and ask for another.',
++    );
++  }
++
++  const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New password</title>
++<style>
++  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;padding:24px}
++  .box{width:100%;max-width:380px}
++  h1{font-size:24px;margin:0 0 8px}
++  p.sub{color:#b5b5b5;line-height:1.6;margin:0 0 24px;font-size:14px}
++  input{width:100%;box-sizing:border-box;background:#1C1C1C;border:1px solid #2E2E2E;border-radius:12px;color:#fff;font-size:16px;padding:14px 16px;margin-bottom:12px}
++  input:focus{outline:none;border-color:#FF1A0D}
++  button{width:100%;background:#FF1A0D;color:#000;font-weight:800;font-size:16px;border:0;border-radius:999px;padding:15px;cursor:pointer}
++  button:disabled{opacity:.5;cursor:default}
++  .msg{margin-top:16px;font-size:14px;line-height:1.5;min-height:20px}
++  .bad{color:#FF6B57}
++  .good{color:#2BD97C}
++</style></head>
++<body><div class="box">
++<h1>Set a new password</h1>
++<p class="sub">For ${check.email}. Use at least 8 characters with a number in it.</p>
++<input id="a" type="password" placeholder="New password" autocomplete="new-password">
++<input id="b" type="password" placeholder="Confirm new password" autocomplete="new-password">
++<button id="go">Save new password</button>
++<p class="msg" id="msg"></p>
++</div>
++<script>
++  var token = ${JSON.stringify(token)};
++  var go = document.getElementById('go');
++  var msg = document.getElementById('msg');
++
++  function say(text, good) {
++    msg.textContent = text;
++    msg.className = 'msg ' + (good ? 'good' : 'bad');
++  }
++
++  go.addEventListener('click', function () {
++    var a = document.getElementById('a').value;
++    var b = document.getElementById('b').value;
++
++    if (a.length < 8) return say('Use at least 8 characters.');
++    if (!/[0-9]/.test(a)) return say('Include at least one number.');
++    if (a !== b) return say('The two passwords do not match.');
++
++    go.disabled = true;
++    say('Saving...', true);
++
++    fetch('/auth/reset', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({ token: token, password: a })
++    })
++      .then(function (r) { return r.json(); })
++      .then(function (d) {
++        if (d.error) { go.disabled = false; return say(d.error); }
++        document.querySelector('.box').innerHTML =
++          '<h1>Password changed</h1><p class="sub">Go back to Fin Extinguisher and sign in with your new password. Every device that was signed in has been signed out.</p>';
++      })
++      .catch(function () { go.disabled = false; say('Could not reach the server. Try again.'); });
++  });
++</script>
++</body></html>`;
++
++  return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
++});
++
++const applyReset = httpAction(async (ctx, request) => {
++  try {
++    const body = await request.json();
++    const result = await ctx.runMutation(api.auth.resetPassword, {
++      resetToken: String(body.token ?? ''),
++      password: String(body.password ?? ''),
++    });
++    return new Response(JSON.stringify(result), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
++  } catch (error) {
++    return new Response(JSON.stringify({ error: String((error as Error).message) }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
++  }
++});
++
+ /* ------------------------------------------------------------------ */
+ /* Accounts                                                            */
+ /* ------------------------------------------------------------------ */
+@@ -369,13 +545,17 @@ http.route({ path: '/auth/signin', method: 'POST', handler: signIn });
+ http.route({ path: '/auth/signout', method: 'POST', handler: signOut });
+ http.route({ path: '/auth/verify', method: 'GET', handler: verify });
+ http.route({ path: '/auth/resend', method: 'POST', handler: resendVerification });
++http.route({ path: '/auth/status', method: 'POST', handler: authStatus });
++http.route({ path: '/auth/forgot', method: 'POST', handler: forgotPassword });
++http.route({ path: '/auth/reset', method: 'GET', handler: resetPage });
++http.route({ path: '/auth/reset', method: 'POST', handler: applyReset });
+ http.route({ path: '/backup/save', method: 'POST', handler: saveBackup });
+ http.route({ path: '/backup/load', method: 'POST', handler: loadBackup });
+ http.route({ path: '/backup/delete', method: 'POST', handler: deleteBackup });
+ 
+ // Browsers ask permission before posting; every route needs to answer.
+ const allow = httpAction(async () => new Response(null, { status: 204, headers: CORS }));
+-for (const path of ['/ask', '/auth/signup', '/auth/signin', '/auth/signout', '/auth/resend', '/backup/save', '/backup/load', '/backup/delete']) {
++for (const path of ['/ask', '/auth/signup', '/auth/signin', '/auth/signout', '/auth/resend', '/auth/status', '/auth/forgot', '/auth/reset', '/backup/save', '/backup/load', '/backup/delete']) {
+   http.route({ path, method: 'OPTIONS', handler: allow });
+ }
+ 
+diff --git a/convex/schema.ts b/convex/schema.ts
+index 79ba4ca..901bc21 100644
+--- a/convex/schema.ts
++++ b/convex/schema.ts
+@@ -27,7 +27,15 @@ export default defineSchema({
+      *  cannot be replayed from an old email. */
+     verifyToken: v.optional(v.string()),
+     verifySentAt: v.optional(v.number()),
+-  }).index('by_email', ['email']).index('by_verify_token', ['verifyToken']),
++    /** One-time token in a "forgot password" link. Cleared the moment it is
++     *  used, and only valid for an hour — a reset link left sitting in an old
++     *  inbox should not still open the account next term. */
++    resetToken: v.optional(v.string()),
++    resetSentAt: v.optional(v.number()),
++  })
++    .index('by_email', ['email'])
++    .index('by_verify_token', ['verifyToken'])
++    .index('by_reset_token', ['resetToken']),
+ 
+   /** One row per signed-in device. The phone holds the token; we hold the
+    *  mapping. Signing out on one phone leaves the others alone. */
+@@ -35,7 +43,9 @@ export default defineSchema({
+     token: v.string(),
+     email: v.string(),
+     createdAt: v.number(),
+-  }).index('by_token', ['token']),
++    // by_email exists so a password reset can drop every device at once
++    // without walking the whole table.
++  }).index('by_token', ['token']).index('by_email', ['email']),
+ 
+   backups: defineTable({
+     /** Lower-cased email or phone the person signed in with. */
+diff --git a/src/components/BackupCard.tsx b/src/components/BackupCard.tsx
+index bdce4ab..461517e 100644
+--- a/src/components/BackupCard.tsx
++++ b/src/components/BackupCard.tsx
+@@ -45,7 +45,7 @@ export function BackupCard() {
+         <Text style={styles.title}>Backup</Text>
+         <Text style={styles.body}>
+           Backup is not switched on for this build. Everything you enter stays on this phone,
+-          and will be lost if the app is removed.
++          and will be lost if the app is removed or you sign out.
+         </Text>
+       </View>
+     );
+@@ -127,8 +127,9 @@ export function BackupCard() {
+     <View style={styles.card}>
+       <Text style={styles.title}>Backup</Text>
+       <Text style={styles.body}>
+-        Optional. Keeps a copy against your account so you can get your history back if you
+-        change phone or reinstall. Everything still works with this switched off.
++        Your spending is saved to your account automatically, a few seconds after each change.
++        Sign in on any phone and it comes back. The buttons below are for forcing it, or for
++        getting rid of it.
+       </Text>
+       <Text style={styles.account}>{owner || 'Not signed in'}</Text>
+ 
+diff --git a/src/components/RiskGauge.tsx b/src/components/RiskGauge.tsx
+index bd323c3..33af3c0 100644
+--- a/src/components/RiskGauge.tsx
++++ b/src/components/RiskGauge.tsx
+@@ -1,29 +1,50 @@
++/**
++ * RiskGauge — the money health dial on the Home screen.
++ *
++ * IT TAKES RISK AND SHOWS HEALTH
++ * The prop is still the engine's risk score, because that is what the engine
++ * produces and there is no sense in two competing scales floating around the
++ * codebase. The flip happens here, at the last moment before pixels:
++ *
++ *     risk 6  ->  health 94  ->  green, bar nearly full
++ *     risk 88 ->  health 12  ->  red, bar nearly empty
++ *
++ * Before this the screen showed the raw risk, so somebody in perfect shape saw
++ * a white "0 / 100" above an empty bar. Every instinct a person has about a
++ * progress bar said they were failing.
++ */
++
+ import React from 'react';
+ import { StyleSheet, Text, View } from 'react-native';
+ import { colors, radii, spacing } from '../theme/colors';
+ import { RiskBand } from '../types/finance';
+-import { riskColor } from '../utils/format';
++import { healthColor, healthFromRisk, healthLabel } from '../utils/format';
+ 
+ export function RiskGauge({ score, band, explanation }: { score: number; band: RiskBand; explanation: string }) {
+-  const accent = riskColor(band);
++  const health = healthFromRisk(score);
++  const accent = healthColor(health);
++  const label = healthLabel(band);
++
+   return (
+     <View
+       accessible
+-      accessibilityLabel={`Money health ${band}, score ${score} out of 100. ${explanation}`}
++      accessibilityLabel={`Money health ${label}, ${health} out of 100. ${explanation}`}
+       style={[styles.card, { borderColor: `${accent}80` }]}
+     >
+       <View style={styles.topRow}>
+         <View>
+           <Text style={styles.eyebrow}>YOUR MONEY HEALTH</Text>
+-          <Text style={[styles.band, { color: accent }]}>{band}</Text>
++          <Text style={[styles.band, { color: accent }]}>{label}</Text>
+         </View>
+         <View style={[styles.scoreCircle, { borderColor: accent, backgroundColor: `${accent}15` }]}>
+-          <Text style={styles.score}>{score}</Text>
++          <Text style={[styles.score, { color: accent }]}>{health}</Text>
+           <Text style={styles.outOf}>/100</Text>
+         </View>
+       </View>
+       <View style={styles.track}>
+-        <View style={[styles.progress, { width: `${Math.max(4, score)}%`, backgroundColor: accent }]} />
++        {/* Minimum 4% so a health of zero still reads as a bar at empty rather
++            than as a bar that failed to render. */}
++        <View style={[styles.progress, { width: `${Math.max(4, health)}%`, backgroundColor: accent }]} />
+       </View>
+       <Text style={styles.explanation}>{explanation}</Text>
+     </View>
+@@ -36,7 +57,7 @@ const styles = StyleSheet.create({
+   eyebrow: { color: colors.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+   band: { fontSize: 25, fontWeight: '900', marginTop: spacing.xs },
+   scoreCircle: { width: 76, height: 76, borderRadius: 38, borderWidth: 3, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', paddingTop: 20 },
+-  score: { color: colors.text, fontSize: 27, fontWeight: '900' },
++  score: { fontSize: 27, fontWeight: '900' },
+   outOf: { color: colors.textMuted, fontSize: 10, fontWeight: '700' },
+   track: { height: 8, borderRadius: radii.pill, backgroundColor: colors.backgroundRaised, marginTop: spacing.xl, overflow: 'hidden' },
+   progress: { height: '100%', borderRadius: radii.pill },
+diff --git a/src/components/SettingsModal.tsx b/src/components/SettingsModal.tsx
+index 052033d..4bef32a 100644
+--- a/src/components/SettingsModal.tsx
++++ b/src/components/SettingsModal.tsx
+@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
+ import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+ import { useFinance } from '../context/FinanceContext';
+ import { signOutOfAccount } from '../services/auth';
++import { saveBackup } from '../services/backup';
+ import { scheduleRiskNotification } from '../services/notifications';
+ import { colors, radii, spacing } from '../theme/colors';
+ import { APP_NAME } from '../theme/brand';
+@@ -26,6 +27,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
+     signedInAs,
+     sessionToken,
+     signOut,
++    snapshot,
+     eraseLocalData,
+   } = useFinance();
+   const [view, setView] = useState<SettingsView>('main');
+@@ -52,13 +54,28 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
+    */
+   const leave = () => confirmAction({
+     title: 'Sign out?',
++    // Wording changed when signing out started clearing the phone. It has to
++    // say so — and it has to say the data comes back, or nobody will ever
++    // press it.
+     message: signedInAs
+-      ? `You will need your password to sign back in as ${signedInAs}. Your spending stays on this phone.`
+-      : 'Your spending stays on this phone.',
++      ? `Your spending is saved to ${signedInAs} and will be cleared off this phone, so nobody else who uses it can see it. Sign back in with your password and it all comes back.`
++      : 'Your spending will be cleared off this phone.',
+     confirmLabel: 'Sign out',
+     destructive: true,
+-    onConfirm: () => {
+-      if (sessionToken) void signOutOfAccount(sessionToken);
++    onConfirm: async () => {
++      /**
++       * Push one last copy before letting go of the phone's.
++       *
++       * The automatic backup waits four seconds after a change, so anything
++       * entered in the moments before pressing this would otherwise be inside
++       * that window when the local data is cleared — and the session is about
++       * to be destroyed, so the pending upload would be rejected anyway. This
++       * closes both gaps.
++       */
++      if (sessionToken) {
++        await saveBackup(sessionToken, snapshot());
++        void signOutOfAccount(sessionToken);
++      }
+       signOut();
+       close();
+     },
+@@ -119,7 +136,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
+       essentialMonthlyExpenses,
+     });
+     setView('main');
+-    showMessage('Details updated', 'Your money score and warnings are now up to date.');
++    showMessage('Details updated', 'Your money health and warnings are now up to date.');
+   };
+ 
+ 
+diff --git a/src/context/FinanceContext.tsx b/src/context/FinanceContext.tsx
+index a181b31..4674171 100644
+--- a/src/context/FinanceContext.tsx
++++ b/src/context/FinanceContext.tsx
+@@ -1,4 +1,4 @@
+-import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
++import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from 'react';
+ import { demoDataset } from '../data/demoData';
+ import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEngine';
+ import { buildForecast } from '../engine/forecastEngine';
+@@ -6,6 +6,7 @@ import { mergeRecurringPayments } from '../engine/recurringDetection';
+ import { predictOutcome } from '../engine/predictionEngine';
+ import { trainModel } from '../engine/learningEngine';
+ import { explainOnDevice } from '../services/ai';
++import { saveBackup } from '../services/backup';
+ import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
+ import {
+   addTransactionToState,
+@@ -65,7 +66,23 @@ interface FinanceContextValue extends FinanceDataset {
+   sessionToken?: string;
+   /** False until the confirmation link is tapped. */
+   emailVerified?: boolean;
+-  signIn: (email: string, token: string, verified: boolean) => void;
++  /**
++   * Take over the app as this account.
++   *
++   * `restored` is that account's own data, fetched from the server during
++   * sign-in. Passing nothing means starting empty — which is the correct
++   * outcome for a new account, and the important one: what must NEVER happen
++   * is the previous person's spending still being on screen.
++   */
++  signIn: (
++    email: string,
++    token: string,
++    verified: boolean,
++    restored?: PersistedFinanceState | null,
++    emailFailed?: boolean,
++  ) => void;
++  /** True when no confirmation email could be sent, so the gate lets them by. */
++  verificationEmailFailed?: boolean;
+   markVerified: () => void;
+   /** Acknowledge a warning: it leaves the list and the count drops. */
+   dismissAlert: (id: string) => void;
+@@ -114,6 +131,36 @@ export function FinanceProvider({ children }: PropsWithChildren) {
+     if (loaded) void saveFinanceState(state);
+   }, [state, loaded]);
+ 
++  /**
++   * Keep the server's copy in step with the phone, without anyone pressing
++   * anything.
++   *
++   * Backup used to be a button. That was fine while backup was a nicety, but
++   * the account now OWNS the data — signing out clears the phone — so a copy
++   * that only exists when someone remembered to press a button is a copy that
++   * loses a week of somebody's spending.
++   *
++   * Four seconds of quiet before sending, so typing an amount is one upload
++   * and not one per keystroke, and the previous payload is remembered so that
++   * a re-render with nothing changed does not cost a request. Failures are
++   * ignored on purpose: the phone still has everything, and the next change
++   * tries again.
++   */
++  const lastPushed = useRef<string>('');
++  useEffect(() => {
++    if (!loaded || !state.sessionToken || !state.onboardingComplete) return;
++
++    const payload = JSON.stringify(state);
++    if (payload === lastPushed.current) return;
++
++    const timer = setTimeout(() => {
++      lastPushed.current = payload;
++      void saveBackup(state.sessionToken as string, state);
++    }, 4000);
++
++    return () => clearTimeout(timer);
++  }, [state, loaded]);
++
+   const dataset = useMemo<FinanceDataset>(() => ({
+     profile: state.profile,
+     transactions: state.transactions,
+@@ -171,6 +218,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
+     signedInAs: state.signedInAs,
+     sessionToken: state.sessionToken,
+     emailVerified: state.emailVerified,
++    verificationEmailFailed: state.verificationEmailFailed,
+     onboardingComplete: state.onboardingComplete,
+     notificationsEnabled: state.notificationsEnabled,
+     useDemoAccount: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: true, signedInAs: current.signedInAs })),
+@@ -205,15 +253,60 @@ export function FinanceProvider({ children }: PropsWithChildren) {
+     snapshot: () => state,
+     // Keep whoever is signed in — a restore should not log them out of the
+     // account they just restored from.
+-    restoreState: (restored) => setState({ ...restored, signedInAs: state.signedInAs }),
+-    signIn: (email, token, verified) => setState((current) => ({ ...current, signedInAs: email, sessionToken: token, emailVerified: verified })),
++    restoreState: (restored) => setState((current) => ({
++      ...restored,
++      signedInAs: current.signedInAs,
++      sessionToken: current.sessionToken,
++      emailVerified: current.emailVerified,
++    })),
++    /**
++     * The bug this fixes, in full, because it is the worst kind:
++     *
++     * Signing out used to clear only `signedInAs`. Everything else — profile,
++     * a month of payments, the alerts — stayed exactly where it was. The next
++     * person to sign in on that phone was shown the previous person's money
++     * as their own, with their own name on the header. It looked like it was
++     * working. That is what made it dangerous.
++     *
++     * So: sign-in now REPLACES the dataset. Either with what the server holds
++     * for this account, or with nothing at all. The one exception is signing
++     * back in as the same person the phone already had — usually because a
++     * network hiccup made the restore come back empty — where wiping their
++     * local data to "fix" it would be the worse of the two mistakes.
++     */
++    signIn: (email, token, verified, restored, emailFailed) => setState((current) => {
++      const base = restored
++        ?? (current.signedInAs === email ? current : initialState);
++      return {
++        ...base,
++        signedInAs: email,
++        sessionToken: token,
++        emailVerified: verified,
++        verificationEmailFailed: emailFailed === true,
++        // Never inherited from a backup: this is a property of the phone, not
++        // of the account.
++        notificationsEnabled: current.notificationsEnabled,
++      };
++    }),
+     markVerified: () => setState((current) => ({ ...current, emailVerified: true })),
+     dismissAlert: (id) => setState((current) => (
+       (current.dismissedAlertIds ?? []).includes(id)
+         ? current
+         : { ...current, dismissedAlertIds: [...(current.dismissedAlertIds ?? []), id] }
+     )),
+-    signOut: () => setState((current) => ({ ...current, signedInAs: undefined, sessionToken: undefined })),
++    /**
++     * Signing out takes the data with it.
++     *
++     * It is a shared-phone app in practice — a hostel room, a friend "just
++     * having a look" — and leaving one person's spending on the sign-in screen
++     * for the next person is not a rough edge, it is a leak. The copy on the
++     * server is what makes this safe to do: sign back in and it all comes
++     * back. Only what is on this phone is being let go of here.
++     */
++    signOut: () => setState((current) => ({
++      ...initialState,
++      notificationsEnabled: current.notificationsEnabled,
++    })),
+     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
+     resetDemo: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: current.notificationsEnabled, signedInAs: current.signedInAs })),
+     eraseLocalData: async () => {
+diff --git a/src/screens/HomeScreen.tsx b/src/screens/HomeScreen.tsx
+index 5f5614b..d0ef7cc 100644
+--- a/src/screens/HomeScreen.tsx
++++ b/src/screens/HomeScreen.tsx
+@@ -10,7 +10,7 @@ import { useFinance } from '../context/FinanceContext';
+ import { colors, radii, spacing } from '../theme/colors';
+ import { FinancialAlert } from '../types/finance';
+ import { toIsoDate } from '../utils/dates';
+-import { formatCurrency, formatDate, formatWhenKnown, riskColor } from '../utils/format';
++import { formatCurrency, formatDate, formatWhenKnown, healthColor, healthFromRisk } from '../utils/format';
+ 
+ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () => void; onOpenSettings: () => void }) {
+   const { profile, summary, transactions } = useFinance();
+@@ -60,7 +60,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: ()
+               ? 'Based on your recent optional spending'
+               : 'Add some spending and I can work this out'}
+             icon="battery-charging"
+-            accent={riskColor(summary.riskBand)}
++            accent={healthColor(healthFromRisk(summary.riskScore))}
+           />
+         </View>
+         <SectionTitle title="Monthly spending" />
+diff --git a/src/screens/SignInScreen.tsx b/src/screens/SignInScreen.tsx
+index db88e5f..6e8d2cb 100644
+--- a/src/screens/SignInScreen.tsx
++++ b/src/screens/SignInScreen.tsx
+@@ -1,24 +1,31 @@
+ /**
+- * SignInScreen — sign in, create an account, confirm your email.
++ * SignInScreen — sign in, create an account, recover a forgotten password.
+  *
+- * Three states in one screen, because they are three steps of one job and
+- * bouncing between screens for it feels like being passed around:
++ * FOUR STATES IN ONE SCREEN, because they are four doors into one room and
++ * bouncing between screens for them feels like being passed around:
+  *
+- *   in     — email and password
+- *   up     — email, password, confirm password
+- *   sent   — "check your inbox", with a way to send it again
++ *   in           — email and password
++ *   up           — email, password, confirm password
++ *   forgot       — the email address to send a reset link to
++ *   forgot-sent  — "check your inbox", with a cooldown before asking again
+  *
+  * Validation happens here, before anything is sent, so nobody waits on a
+  * round trip to be told their passwords do not match.
+  *
+- * There is no "Continue with Google". OAuth needs a redirect back into the
+- * app, which needs a development build and a registered client — a button
++ * WHAT IS NOT HERE ANY MORE
++ * The "check your inbox" step after signing up used to live in this file with
++ * a "Continue to the app" button under it, which made confirming optional in
++ * practice. It is now its own screen (VerifyEmailScreen) sitting between this
++ * one and the app, and it waits.
++ *
++ * There is still no "Continue with Google". OAuth needs a redirect back into
++ * the app, which needs a development build and a registered client — a button
+  * here today would do nothing, and a dead control in a demo is worse than an
+  * absent one.
+  */
+ 
+ import { Feather } from '@expo/vector-icons';
+-import React, { useState } from 'react';
++import React, { useEffect, useState } from 'react';
+ import {
+   ActivityIndicator,
+   Image,
+@@ -38,30 +45,62 @@ import {
+   isAuthAvailable,
+   looksLikeEmail,
+   passwordProblem,
+-  resendVerification,
++  requestPasswordReset,
+   signInToAccount,
+ } from '../services/auth';
++import { fetchBackup } from '../services/backup';
+ import { APP_NAME } from '../theme/brand';
+ import { colors, radii, spacing } from '../theme/colors';
++import { PersistedFinanceState } from '../types/finance';
++
++type Stage = 'in' | 'up' | 'forgot' | 'forgot-sent';
++
++/** Long enough to stop someone hammering it, short enough not to feel punitive. */
++const RESEND_COOLDOWN_SECONDS = 60;
++
++interface Props {
++  /**
++   * `restored` is this account's own data, pulled from the server before the
++   * app is handed over. It is the whole reason signing in as somebody else no
++   * longer shows the previous person's spending.
++   */
++  onSignedIn: (
++    account: Account,
++    restored: PersistedFinanceState | null,
++    emailFailed: boolean,
++  ) => void;
++}
+ 
+-type Stage = 'in' | 'up' | 'sent';
+-
+-export function SignInScreen({ onSignedIn }: { onSignedIn: (account: Account) => void }) {
++export function SignInScreen({ onSignedIn }: Props) {
+   const [stage, setStage] = useState<Stage>('in');
+   const [email, setEmail] = useState('');
+   const [password, setPassword] = useState('');
+   const [confirm, setConfirm] = useState('');
+   const [showPassword, setShowPassword] = useState(false);
+   const [busy, setBusy] = useState(false);
++  const [busyLabel, setBusyLabel] = useState('');
+   const [error, setError] = useState<string | null>(null);
+   const [note, setNote] = useState<string | null>(null);
++  const [cooldown, setCooldown] = useState(0);
+ 
+-  /** Held back until they either confirm or choose to carry on. */
+-  const [pending, setPending] = useState<Account | null>(null);
+-  const [emailWentOut, setEmailWentOut] = useState(false);
++  /** One tick a second while a cooldown is running, then it stops itself. */
++  useEffect(() => {
++    if (cooldown <= 0) return;
++    const timer = setTimeout(() => setCooldown((left) => left - 1), 1000);
++    return () => clearTimeout(timer);
++  }, [cooldown]);
+ 
+   const clearError = () => { if (error) setError(null); };
+ 
++  const switchTo = (next: Stage) => {
++    setStage(next);
++    setError(null);
++    setNote(null);
++    setConfirm('');
++  };
++
++  /* ---- Sign in / create account ---- */
++
+   const submit = async () => {
+     const address = email.trim();
+ 
+@@ -83,94 +122,187 @@ export function SignInScreen({ onSignedIn }: { onSignedIn: (account: Account) =>
+     setError(null);
+ 
+     if (stage === 'up') {
++      setBusyLabel('Creating your account');
+       const result = await createAccount(address, password);
+       setBusy(false);
+       if (result.error || !result.account) {
+         setError(result.error ?? 'Something went wrong.');
+         return;
+       }
+-      setPending(result.account);
+-      setEmailWentOut(result.verificationSent === true);
+-      setStage('sent');
++      // A brand-new account has nothing to restore, by definition.
++      onSignedIn(result.account, null, result.verificationSent !== true);
+       return;
+     }
+ 
++    setBusyLabel('Signing in');
+     const result = await signInToAccount(address, password);
+-    setBusy(false);
+     if (result.error || !result.account) {
++      setBusy(false);
+       setError(result.error ?? 'Something went wrong.');
+       return;
+     }
+ 
+-    onSignedIn(result.account);
++    /**
++     * Fetch this account's data BEFORE handing the app over.
++     *
++     * Doing it after would mean a second or two where the app is open,
++     * signed in as the new person, still showing whatever was on the phone.
++     * On a shared phone that second is the entire bug.
++     */
++    setBusyLabel('Getting your data');
++    const backup = await fetchBackup(result.account.token);
++    setBusy(false);
++
++    onSignedIn(result.account, backup?.state ?? null, false);
+   };
+ 
+-  const sendAgain = async () => {
+-    if (!pending) return;
++  /* ---- Forgotten password ---- */
++
++  const sendResetLink = async () => {
++    const address = email.trim();
++    if (!looksLikeEmail(address)) {
++      setError('Enter a valid email address.');
++      return;
++    }
++
+     setBusy(true);
+-    setNote(null);
+-    const result = await resendVerification(pending.token);
++    setBusyLabel('Sending');
++    setError(null);
++    const result = await requestPasswordReset(address);
+     setBusy(false);
+-    setNote(result.sent ? 'Sent. Check your inbox.' : (result.error ?? 'Could not send it just now.'));
++
++    if (!result.ok) {
++      setError(result.error ?? 'Could not send it just now.');
++      return;
++    }
++    setCooldown(RESEND_COOLDOWN_SECONDS);
++    setNote(null);
++    setStage('forgot-sent');
+   };
+ 
+-  const switchTo = (next: Stage) => {
+-    setStage(next);
+-    setError(null);
++  const sendResetAgain = async () => {
++    if (cooldown > 0) return;
++    setBusy(true);
++    setBusyLabel('Sending');
+     setNote(null);
+-    setConfirm('');
++    const result = await requestPasswordReset(email.trim());
++    setBusy(false);
++    if (result.ok) {
++      setCooldown(RESEND_COOLDOWN_SECONDS);
++      setNote('Sent again. Check your inbox.');
++    } else {
++      setNote(result.error ?? 'Could not send it just now.');
++    }
+   };
+ 
+-  /* ---- "Check your inbox" ---- */
+-  if (stage === 'sent' && pending) {
++  /* ---- "We sent you a reset link" ---- */
++
++  if (stage === 'forgot-sent') {
+     return (
+       <View style={styles.screen}>
+         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+           <View style={styles.brand}>
+-            <View style={[styles.tick, !emailWentOut && styles.tickMuted]}>
+-              <Feather name={emailWentOut ? 'mail' : 'alert-circle'} size={30} color={colors.black} />
++            <View style={styles.tick}>
++              <Feather name="mail" size={30} color={colors.black} />
+             </View>
+           </View>
+ 
+-          <Text style={styles.heading}>
+-            {emailWentOut ? 'Check your inbox' : 'Account created'}
+-          </Text>
+-
++          <Text style={styles.heading}>Check your inbox</Text>
+           <Text style={styles.explain}>
+-            {emailWentOut
+-              ? `We sent a confirmation link to ${pending.email}. Tap it to finish setting up backup.`
+-              : `Your account is ready, but we could not send the confirmation email. You can use everything except backup, and confirm later.`}
++            If there is an account for {email.trim()}, a link to set a new password is on its
++            way. It works once, and stops working after an hour.
+           </Text>
+ 
+           {note ? <Text style={styles.note}>{note}</Text> : null}
+ 
+           <Pressable
+             accessibilityRole="button"
+-            onPress={() => onSignedIn(pending)}
+-            style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
++            accessibilityLabel={cooldown > 0 ? `Send again in ${cooldown} seconds` : 'Send the link again'}
++            disabled={busy || cooldown > 0}
++            onPress={() => { void sendResetAgain(); }}
++            style={({ pressed }) => [styles.ghost, pressed && styles.pressed, (busy || cooldown > 0) && styles.disabled]}
+           >
+-            <Text style={styles.primaryText}>Continue to the app</Text>
++            {busy
++              ? <ActivityIndicator color={colors.text} size="small" />
++              : (
++                <Text style={styles.ghostText}>
++                  {cooldown > 0 ? `Send again in ${cooldown}s` : 'Send the link again'}
++                </Text>
++              )}
+           </Pressable>
+ 
+           <Pressable
+             accessibilityRole="button"
+-            disabled={busy}
+-            onPress={() => { void sendAgain(); }}
+-            style={({ pressed }) => [styles.ghost, pressed && styles.pressed]}
++            onPress={() => { setCooldown(0); switchTo('in'); }}
++            style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
+           >
+-            {busy
+-              ? <ActivityIndicator color={colors.text} size="small" />
+-              : <Text style={styles.ghostText}>Send the link again</Text>}
++            <Text style={styles.primaryText}>Back to sign in</Text>
+           </Pressable>
+ 
+           <Text style={styles.footnote}>
+-            You can start using the app straight away. Confirming only unlocks backup.
++            Set your new password on the page the link opens, then come back here and sign in
++            with it.
+           </Text>
+         </ScrollView>
+       </View>
+     );
+   }
+ 
++  /* ---- Forgot password: which address? ---- */
++
++  if (stage === 'forgot') {
++    return (
++      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
++        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
++          <View style={styles.brand}>
++            <View style={styles.tick}>
++              <Feather name="key" size={28} color={colors.black} />
++            </View>
++          </View>
++
++          <Text style={styles.heading}>Forgot your password?</Text>
++          <Text style={styles.explain}>
++            Type the address you signed up with and we will send you a link to set a new one.
++          </Text>
++
++          <TextInput
++            style={styles.input}
++            value={email}
++            onChangeText={(text) => { setEmail(text); clearError(); }}
++            placeholder="Email address"
++            placeholderTextColor="#8A8A8A"
++            autoCapitalize="none"
++            autoCorrect={false}
++            keyboardType="email-address"
++            textContentType="emailAddress"
++            accessibilityLabel="Email address"
++          />
++
++          {error ? <Text style={styles.error}>{error}</Text> : null}
++
++          <Pressable
++            accessibilityRole="button"
++            disabled={busy}
++            onPress={() => { void sendResetLink(); }}
++            style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}
++          >
++            {busy
++              ? <ActivityIndicator color={colors.black} />
++              : <Text style={styles.primaryText}>Send me a link</Text>}
++          </Pressable>
++
++          <Pressable
++            accessibilityRole="button"
++            onPress={() => switchTo('in')}
++            style={({ pressed }) => [styles.ghost, pressed && styles.pressed]}
++          >
++            <Text style={styles.ghostText}>Back to sign in</Text>
++          </Pressable>
++        </ScrollView>
++      </KeyboardAvoidingView>
++    );
++  }
++
+   /* ---- Sign in / sign up ---- */
+ 
+   return (
+@@ -244,6 +376,18 @@ export function SignInScreen({ onSignedIn }: { onSignedIn: (account: Account) =>
+           </>
+         ) : null}
+ 
++        {/* Only on the sign-in side. Offering "forgot your password" while
++            somebody is inventing one for the first time is just noise. */}
++        {stage === 'in' ? (
++          <Pressable
++            accessibilityRole="button"
++            onPress={() => switchTo('forgot')}
++            style={styles.forgotRow}
++          >
++            <Text style={styles.forgotText}>Forgot password?</Text>
++          </Pressable>
++        ) : null}
++
+         {error ? <Text style={styles.error}>{error}</Text> : null}
+ 
+         <Pressable
+@@ -253,7 +397,16 @@ export function SignInScreen({ onSignedIn }: { onSignedIn: (account: Account) =>
+           style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}
+         >
+           {busy
+-            ? <ActivityIndicator color={colors.black} />
++            ? (
++              <View style={styles.busyRow}>
++                <ActivityIndicator color={colors.black} />
++                {/* Signing in now does two things — checks the password, then
++                    downloads the account's data — and the second is slow
++                    enough that saying which one is happening stops it looking
++                    stuck. */}
++                <Text style={styles.busyText}>{busyLabel}</Text>
++              </View>
++            )
+             : <Text style={styles.primaryText}>{stage === 'in' ? 'Sign In' : 'Create account'}</Text>}
+         </Pressable>
+ 
+@@ -276,7 +429,7 @@ export function SignInScreen({ onSignedIn }: { onSignedIn: (account: Account) =>
+ 
+         <Text style={styles.footnote}>
+           {isAuthAvailable()
+-            ? 'Your spending stays on this phone. Your account only saves your place and lets you back up.'
++            ? 'Your spending is kept with your account, so it follows you to a new phone and nobody else who uses this one can see it.'
+             : 'Accounts are not switched on in this build.'}
+         </Text>
+       </ScrollView>
+@@ -308,7 +461,6 @@ const styles = StyleSheet.create({
+     width: 68, height: 68, borderRadius: 34, backgroundColor: colors.primary,
+     alignItems: 'center', justifyContent: 'center',
+   },
+-  tickMuted: { backgroundColor: colors.textMuted },
+ 
+   heading: { color: colors.text, fontSize: 20, fontWeight: '900', textAlign: 'center' },
+   explain: {
+@@ -336,6 +488,9 @@ const styles = StyleSheet.create({
+   },
+   eye: { padding: 6 },
+ 
++  forgotRow: { alignSelf: 'flex-end', paddingVertical: 2, paddingHorizontal: spacing.md },
++  forgotText: { color: colors.primary, fontSize: 12.5, fontWeight: '800' },
++
+   rule: { color: colors.textMuted, fontSize: 11, paddingHorizontal: spacing.md },
+   error: { color: colors.primary, fontSize: 12.5, fontWeight: '700', paddingHorizontal: spacing.md },
+ 
+@@ -344,6 +499,8 @@ const styles = StyleSheet.create({
+     paddingVertical: 15, alignItems: 'center', justifyContent: 'center', minHeight: 50,
+   },
+   primaryText: { color: colors.black, fontSize: 15, fontWeight: '900' },
++  busyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
++  busyText: { color: colors.black, fontSize: 14, fontWeight: '800' },
+ 
+   orRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+   line: { flex: 1, height: 1, backgroundColor: colors.border },
+diff --git a/src/screens/SimulatorScreen.tsx b/src/screens/SimulatorScreen.tsx
+index c40a82d..7cc856c 100644
+--- a/src/screens/SimulatorScreen.tsx
++++ b/src/screens/SimulatorScreen.tsx
+@@ -12,7 +12,7 @@ import { APP_NAME } from '../theme/brand';
+ import { SimulationResult, TransactionCategory } from '../types/finance';
+ import { showMessage } from '../utils/alerts';
+ import { toIsoDate } from '../utils/dates';
+-import { formatCurrency, riskColor , formatWhenKnown } from '../utils/format';
++import { formatCurrency, formatWhenKnown, healthColor, healthFromRisk, healthLabel } from '../utils/format';
+ import { isDateOnOrAfter, isValidIsoDate, parsePositiveMoney } from '../utils/validation';
+ 
+ const simulatorCategories: TransactionCategory[] = ['shopping', 'food', 'entertainment', 'transport', 'health', 'other'];
+@@ -49,10 +49,13 @@ export function SimulatorScreen() {
+     );
+     showMessage(shown ? 'Warning sent' : 'Use your phone to test', shown ? 'The local notification is ready.' : 'Browser preview cannot display native notifications.');
+   };
++  // The colour of the whole result block, taken from where health lands AFTER
++  // the purchase — which is the thing the person is actually asking about.
++  const verdictColor = result ? healthColor(healthFromRisk(result.after.riskScore)) : colors.safe;
+   return (
+     <Screen title="Try a purchase" subtitle="See what may happen before you spend the money.">
+       <View style={styles.formCard}>
+-        <View style={styles.formHeader}><View style={styles.formIcon}><Feather name="sliders" size={20} color={colors.primary} /></View><View><Text style={styles.formTitle}>Check a purchase</Text><Text style={styles.formHelper}>We will update your money score and days left.</Text></View></View>
++        <View style={styles.formHeader}><View style={styles.formIcon}><Feather name="sliders" size={20} color={colors.primary} /></View><View><Text style={styles.formTitle}>Check a purchase</Text><Text style={styles.formHelper}>We will update your money health and days left.</Text></View></View>
+         <FormField label="What do you want to buy?" value={description} onChangeText={setDescription} placeholder="e.g. New phone" />
+         <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="5000" />
+         <View style={styles.quickRow}>{quickAmounts.map((value) => (
+@@ -74,17 +77,26 @@ export function SimulatorScreen() {
+       </View>
+       {result ? (
+         <View style={styles.resultWrap}>
+-          <View style={[styles.verdict, { borderColor: riskColor(result.verdict), backgroundColor: `${riskColor(result.verdict)}16` }]}>
+-            <View><Text style={styles.verdictEyebrow}>RESULT</Text><Text style={[styles.verdictValue, { color: riskColor(result.verdict) }]}>{result.verdict}</Text></View>
+-            <Feather name={result.riskChange > 0 ? 'alert-triangle' : 'check-circle'} size={28} color={riskColor(result.verdict)} />
++          <View style={[styles.verdict, { borderColor: verdictColor, backgroundColor: `${verdictColor}16` }]}>
++            <View><Text style={styles.verdictEyebrow}>RESULT</Text><Text style={[styles.verdictValue, { color: verdictColor }]}>{healthLabel(result.verdict)}</Text></View>
++            <Feather name={result.riskChange > 0 ? 'alert-triangle' : 'check-circle'} size={28} color={verdictColor} />
+           </View>
+           <View style={styles.comparison}>
+-            <Comparison label="Money score" before={`${result.before.riskScore}/100`} after={`${result.after.riskScore}/100`} change={result.riskChange} />
++            {/* Health, not risk — and so the arrow now means the opposite of
++                what riskChange says, hence the minus. */}
++            <Comparison
++              label="Money health"
++              before={`${healthFromRisk(result.before.riskScore)}/100`}
++              after={`${healthFromRisk(result.after.riskScore)}/100`}
++              change={-result.riskChange}
++              higherIsBetter
++            />
+             <Comparison
+               label="How long money may last"
+               before={formatWhenKnown(result.before.hasSpendingHistory, `${result.before.runwayDays} days`)}
+               after={formatWhenKnown(result.after.hasSpendingHistory, `${result.after.runwayDays} days`)}
+               change={result.before.hasSpendingHistory ? result.runwayChange : 0}
++              higherIsBetter
+             />
+             <Comparison label="Likely month total" before={formatCurrency(result.before.projectedMonthlySpending)} after={formatCurrency(result.after.projectedMonthlySpending)} change={result.after.projectedMonthlySpending - result.before.projectedMonthlySpending} />
+           </View>
+@@ -102,8 +114,13 @@ export function SimulatorScreen() {
+   );
+ }
+ 
+-function Comparison({ label, before, after, change }: { label: string; before: string; after: string; change: number }) {
+-  const adverse = label === 'How long money may last' ? change < 0 : change > 0;
++/**
++ * `higherIsBetter` used to be inferred by comparing the label to a string,
++ * which quietly broke the moment a label was reworded — and one was, when the
++ * money score became money health. It is a prop now.
++ */
++function Comparison({ label, before, after, change, higherIsBetter = false }: { label: string; before: string; after: string; change: number; higherIsBetter?: boolean }) {
++  const adverse = higherIsBetter ? change < 0 : change > 0;
+   return (
+     <View style={styles.comparisonRow}>
+       <Text style={styles.comparisonLabel}>{label}</Text>
+diff --git a/src/screens/VerifyEmailScreen.tsx b/src/screens/VerifyEmailScreen.tsx
+new file mode 100644
+index 0000000..d09f632
+--- /dev/null
++++ b/src/screens/VerifyEmailScreen.tsx
+@@ -0,0 +1,281 @@
++/**
++ * VerifyEmailScreen — the wait between creating an account and using it.
++ *
++ * WHY IT WAITS
++ * The confirmation step used to have a "Continue to the app" button under it,
++ * which meant nobody ever confirmed anything: the button was right there, and
++ * it worked. An address nobody proves they own is not an address — it cannot
++ * receive a password reset, and it cannot be trusted to be the right person's
++ * data when they sign in somewhere else. So this screen holds.
++ *
++ * HOW IT MOVES ON BY ITSELF
++ * The link opens in a browser. A browser cannot talk to the phone. Without a
++ * development build there is no deep link and no push notification to close
++ * that gap, so the phone asks the server every few seconds whether it has
++ * happened yet, and asks immediately whenever the app comes back to the
++ * foreground — which is exactly the moment someone returns from their mail app
++ * after tapping the link. In practice the screen changes before they have
++ * finished looking at it.
++ *
++ * THE ONE WAY PAST IT
++ * If the server could not send the email at all — no mail key, a sender the
++ * mail provider rejected — holding someone here would be locking them out of
++ * an app that otherwise runs entirely on their own phone, over a letter that
++ * was never posted. In that case, and only that case, there is a way through.
++ */
++
++import { Feather } from '@expo/vector-icons';
++import React, { useCallback, useEffect, useRef, useState } from 'react';
++import {
++  ActivityIndicator,
++  AppState,
++  Pressable,
++  ScrollView,
++  StyleSheet,
++  Text,
++  View,
++} from 'react-native';
++
++import { useFinance } from '../context/FinanceContext';
++import { checkVerification, resendVerification, signOutOfAccount } from '../services/auth';
++import { colors, radii, spacing } from '../theme/colors';
++
++/** Matches the server's own limit, so the button is never lying. */
++const RESEND_COOLDOWN_SECONDS = 60;
++const POLL_EVERY_MS = 4000;
++
++/**
++ * How long to wait before admitting the email might never come.
++ *
++ * The `verificationEmailFailed` flag catches the failures the server can see —
++ * no mail key, no sender address. It cannot catch the ones that happen after
++ * the mail provider has already said yes: Brevo accepts the API call, queues
++ * the message, and only then refuses to send it if the from-address has not
++ * been verified in their dashboard. As far as this app is concerned that send
++ * SUCCEEDED, and the person sits here forever waiting for a letter that was
++ * destroyed on the way out.
++ *
++ * So after two minutes of nothing, a quiet way through appears. Not a button
++ * competing with "send it again" — a line of text, below everything, that has
++ * to be looked for. Anyone whose email works will have confirmed long before
++ * they ever see it.
++ *
++ * Set this to 0 to remove the escape entirely once mail delivery is proven.
++ */
++const ESCAPE_AFTER_SECONDS = 120;
++
++export function VerifyEmailScreen() {
++  const {
++    signedInAs,
++    sessionToken,
++    verificationEmailFailed,
++    markVerified,
++    signOut,
++  } = useFinance();
++
++  const [cooldown, setCooldown] = useState(RESEND_COOLDOWN_SECONDS);
++  const [note, setNote] = useState<string | null>(null);
++  const [sending, setSending] = useState(false);
++  const [waitedTooLong, setWaitedTooLong] = useState(false);
++
++  /** Guards against two checks overlapping on a slow connection. */
++  const checking = useRef(false);
++
++  const check = useCallback(async () => {
++    if (!sessionToken || checking.current) return;
++    checking.current = true;
++    const { state } = await checkVerification(sessionToken);
++    checking.current = false;
++
++    if (state === 'verified') {
++      markVerified();
++      return;
++    }
++    // The session is gone — signed out on another phone, or a password reset
++    // dropped every device. Back to the sign-in screen rather than sitting
++    // here forever waiting for an answer that will never change.
++    if (state === 'expired') signOut();
++    // 'unknown' is a network blip. Say nothing, try again on the next tick.
++  }, [sessionToken, markVerified, signOut]);
++
++  /** The steady drumbeat. */
++  useEffect(() => {
++    void check();
++    const timer = setInterval(() => { void check(); }, POLL_EVERY_MS);
++    return () => clearInterval(timer);
++  }, [check]);
++
++  /** And an immediate one the moment they come back from their mail app. */
++  useEffect(() => {
++    const subscription = AppState.addEventListener('change', (next) => {
++      if (next === 'active') void check();
++    });
++    return () => subscription.remove();
++  }, [check]);
++
++  useEffect(() => {
++    if (cooldown <= 0) return;
++    const timer = setTimeout(() => setCooldown((left) => left - 1), 1000);
++    return () => clearTimeout(timer);
++  }, [cooldown]);
++
++  useEffect(() => {
++    if (ESCAPE_AFTER_SECONDS <= 0) return;
++    const timer = setTimeout(() => setWaitedTooLong(true), ESCAPE_AFTER_SECONDS * 1000);
++    return () => clearTimeout(timer);
++  }, []);
++
++  const sendAgain = async () => {
++    if (!sessionToken || cooldown > 0) return;
++    setSending(true);
++    setNote(null);
++    const result = await resendVerification(sessionToken);
++    setSending(false);
++
++    if (result.sent) {
++      setCooldown(RESEND_COOLDOWN_SECONDS);
++      setNote('Sent. Check your inbox.');
++    } else {
++      setNote(result.error ?? 'Could not send it just now.');
++    }
++  };
++
++  const useAnotherAddress = async () => {
++    if (sessionToken) await signOutOfAccount(sessionToken);
++    signOut();
++  };
++
++  const blocked = verificationEmailFailed === true;
++
++  return (
++    <View style={styles.screen}>
++      <ScrollView contentContainerStyle={styles.content}>
++        <View style={[styles.badge, blocked && styles.badgeMuted]}>
++          <Feather name={blocked ? 'alert-circle' : 'mail'} size={30} color={colors.black} />
++        </View>
++
++        <Text style={styles.heading}>
++          {blocked ? 'We could not send the email' : 'Confirm your email'}
++        </Text>
++
++        <Text style={styles.explain}>
++          {blocked
++            ? `Your account is ready, but the confirmation email to ${signedInAs} did not go out. That is our end, not yours — you can carry on and confirm later.`
++            : `We sent a link to ${signedInAs}. Tap it and this screen will move on by itself — there is nothing to type back in here.`}
++        </Text>
++
++        {!blocked ? (
++          <View style={styles.waiting}>
++            <ActivityIndicator color={colors.primary} size="small" />
++            <Text style={styles.waitingText}>Waiting for you to tap the link…</Text>
++          </View>
++        ) : null}
++
++        {note ? <Text style={styles.note}>{note}</Text> : null}
++
++        <Pressable
++          accessibilityRole="button"
++          accessibilityLabel={cooldown > 0 ? `Send again in ${cooldown} seconds` : 'Send the link again'}
++          disabled={sending || cooldown > 0}
++          onPress={() => { void sendAgain(); }}
++          style={({ pressed }) => [styles.primary, pressed && styles.pressed, (sending || cooldown > 0) && styles.disabled]}
++        >
++          {sending
++            ? <ActivityIndicator color={colors.black} />
++            : (
++              <Text style={styles.primaryText}>
++                {cooldown > 0 ? `Send the link again in ${cooldown}s` : 'Send the link again'}
++              </Text>
++            )}
++        </Pressable>
++
++        {blocked ? (
++          <Pressable
++            accessibilityRole="button"
++            onPress={markVerified}
++            style={({ pressed }) => [styles.ghost, pressed && styles.pressed]}
++          >
++            <Text style={styles.ghostText}>Carry on without confirming</Text>
++          </Pressable>
++        ) : null}
++
++        <Pressable
++          accessibilityRole="button"
++          onPress={() => { void useAnotherAddress(); }}
++          style={({ pressed }) => [styles.ghost, pressed && styles.pressed]}
++        >
++          <Text style={styles.ghostText}>Use a different email</Text>
++        </Pressable>
++
++        <Text style={styles.footnote}>
++          Check your spam folder if it is not there after a minute. Confirming is what keeps
++          your spending tied to you and nobody else.
++        </Text>
++
++        {/* Deliberately the last, quietest thing on the screen. */}
++        {waitedTooLong && !blocked ? (
++          <Pressable
++            accessibilityRole="button"
++            onPress={markVerified}
++            style={styles.escape}
++          >
++            <Text style={styles.escapeText}>Still nothing? Carry on without confirming</Text>
++          </Pressable>
++        ) : null}
++      </ScrollView>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  screen: { flex: 1, backgroundColor: colors.background },
++  content: {
++    flexGrow: 1, justifyContent: 'center',
++    paddingHorizontal: spacing.xl, paddingVertical: spacing.xxl, gap: spacing.md,
++  },
++
++  badge: {
++    width: 68, height: 68, borderRadius: 34, backgroundColor: colors.primary,
++    alignItems: 'center', justifyContent: 'center', alignSelf: 'center',
++    marginBottom: spacing.md,
++  },
++  badgeMuted: { backgroundColor: colors.textMuted },
++
++  heading: { color: colors.text, fontSize: 21, fontWeight: '900', textAlign: 'center' },
++  explain: {
++    color: colors.textSecondary, fontSize: 13.5, lineHeight: 20,
++    textAlign: 'center', paddingHorizontal: spacing.sm,
++  },
++
++  waiting: {
++    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
++    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
++    borderRadius: radii.lg, paddingVertical: spacing.md, marginVertical: spacing.sm,
++  },
++  waitingText: { color: colors.textSecondary, fontSize: 12.5, fontWeight: '700' },
++
++  note: { color: colors.primary, fontSize: 12.5, fontWeight: '700', textAlign: 'center' },
++
++  primary: {
++    backgroundColor: colors.primary, borderRadius: radii.pill,
++    paddingVertical: 15, alignItems: 'center', justifyContent: 'center', minHeight: 50,
++  },
++  primaryText: { color: colors.black, fontSize: 15, fontWeight: '900' },
++
++  ghost: {
++    borderWidth: 1, borderColor: colors.border, borderRadius: radii.pill,
++    paddingVertical: 13, alignItems: 'center', justifyContent: 'center', minHeight: 46,
++  },
++  ghostText: { color: colors.text, fontSize: 14, fontWeight: '800' },
++
++  pressed: { opacity: 0.85 },
++  disabled: { opacity: 0.55 },
++
++  footnote: {
++    color: colors.textMuted, fontSize: 11, textAlign: 'center',
++    marginTop: spacing.sm, lineHeight: 16,
++  },
++
++  escape: { alignSelf: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
++  escapeText: { color: colors.textMuted, fontSize: 11.5, fontWeight: '700', textDecorationLine: 'underline' },
++});
+diff --git a/src/services/auth.ts b/src/services/auth.ts
+index caf11fb..bc335c9 100644
+--- a/src/services/auth.ts
++++ b/src/services/auth.ts
+@@ -105,3 +105,41 @@ export async function resendVerification(token: string): Promise<{ sent: boolean
+   if (result.error) return { sent: false, error: String(result.error) };
+   return { sent: result.sent === true };
+ }
++
++/**
++ * Has this account been confirmed yet?
++ *
++ * Asked on a timer while the person is sitting on the "check your inbox"
++ * screen. The link opens in a browser, and a browser has no way to tell the
++ * phone anything, so the phone has to keep asking.
++ *
++ * Three answers, all of which matter:
++ *   { verified: true  } — done, let them in
++ *   { verified: false } — keep waiting
++ *   { expired: true }   — the session is gone; send them back to sign in
++ *
++ * A network failure returns `unknown`, which means "ask again later" and NOT
++ * "signed out" — a lift with no signal must not eject anyone from the app.
++ */
++export async function checkVerification(
++  token: string,
++): Promise<{ state: 'verified' | 'waiting' | 'expired' | 'unknown' }> {
++  const result = await call('/auth/status', { token });
++  if (!result || result.error) return { state: 'unknown' };
++  if (result.expired) return { state: 'expired' };
++  return { state: result.verified === true ? 'verified' : 'waiting' };
++}
++
++/**
++ * Start a password reset.
++ *
++ * Always reports success, even for an address with no account. The server
++ * deliberately answers the same way in both cases — otherwise this screen
++ * becomes a tool for checking whether a given person has an account here.
++ */
++export async function requestPasswordReset(email: string): Promise<{ ok: boolean; error?: string }> {
++  const result = await call('/auth/forgot', { email });
++  if (!result) return { ok: false, error: 'Could not reach the server. Check your connection.' };
++  if (result.error) return { ok: false, error: String(result.error) };
++  return { ok: true };
++}
+diff --git a/src/services/backup.ts b/src/services/backup.ts
+index c357ce6..0de6e44 100644
+--- a/src/services/backup.ts
++++ b/src/services/backup.ts
+@@ -60,9 +60,17 @@ export async function saveBackup(
+   token: string,
+   state: PersistedFinanceState,
+ ): Promise<number | null> {
++  /**
++   * The session token, and who is signed in, are properties of THIS PHONE.
++   * They have no business in a copy that another device will download — a
++   * restored session token would be a live credential sitting in a payload,
++   * and the sign-in flow overwrites all three fields anyway. Strip them.
++   */
++  const { sessionToken, signedInAs, emailVerified, verificationEmailFailed, ...portable } = state;
++
+   const result = await post('/backup/save', {
+     token,
+-    payload: JSON.stringify(state),
++    payload: JSON.stringify(portable),
+     transactionCount: state.transactions.length,
+   });
+   return typeof result?.updatedAt === 'number' ? result.updatedAt : null;
+diff --git a/src/services/financeState.ts b/src/services/financeState.ts
+index 365a6fe..d012f8e 100644
+--- a/src/services/financeState.ts
++++ b/src/services/financeState.ts
+@@ -142,5 +142,23 @@ export function sanitizePersistedState(value: unknown): PersistedFinanceState |
+     recurringPayments: state.recurringPayments.filter(isRecurringPayment),
+     onboardingComplete: state.onboardingComplete === true,
+     notificationsEnabled: state.notificationsEnabled !== false,
++
++    /**
++     * Everything below this line used to be quietly dropped, and it took a
++     * while to see why, because nothing looked broken — it just meant the app
++     * forgot who you were every time it was closed. "Remember this device"
++     * was implemented, saved to disk correctly, and then discarded here on the
++     * way back in, along with every warning anyone had said "got it" to.
++     *
++     * Whitelisting fields is still the right shape for this function. The
++     * whitelist just has to actually contain them.
++     */
++    signedInAs: typeof state.signedInAs === 'string' ? state.signedInAs : undefined,
++    sessionToken: typeof state.sessionToken === 'string' ? state.sessionToken : undefined,
++    emailVerified: state.emailVerified === true,
++    verificationEmailFailed: state.verificationEmailFailed === true,
++    dismissedAlertIds: Array.isArray(state.dismissedAlertIds)
++      ? state.dismissedAlertIds.filter((id): id is string => typeof id === 'string')
++      : [],
+   };
+ }
+diff --git a/src/theme/colors.ts b/src/theme/colors.ts
+index 3e22640..579f5ad 100644
+--- a/src/theme/colors.ts
++++ b/src/theme/colors.ts
+@@ -9,6 +9,16 @@ export const colors = {
+   primarySoft: '#2B0906',
+   safe: '#FFFFFF',
+   safeSoft: '#161616',
++  /**
++   * The one colour outside black/white/red, and it earns its place.
++   *
++   * Money health is the only number in the app where high is good. Rendering
++   * "94 out of 100" in the same white as everything else told the reader
++   * nothing, and rendering it in red said the opposite of what it meant. Green
++   * is the only colour a person reads as "you are fine" without being taught.
++   */
++  healthy: '#2BD97C',
++  healthySoft: '#062015',
+   watch: '#FFB3A8',
+   watchSoft: '#2A1310',
+   high: '#FF6B57',
+diff --git a/src/types/finance.ts b/src/types/finance.ts
+index 289ffdc..62e14d4 100644
+--- a/src/types/finance.ts
++++ b/src/types/finance.ts
+@@ -131,6 +131,16 @@ export interface PersistedFinanceState extends FinanceDataset {
+   sessionToken?: string;
+   /** Whether the signed-in address has been confirmed by email. */
+   emailVerified?: boolean;
++  /**
++   * Set when the server could not send the confirmation email at all — a
++   * missing mail key, a sender the mail provider rejected.
++   *
++   * It exists so the app can tell "waiting for them to tap the link" apart
++   * from "no link was ever sent". Holding someone at a confirmation screen for
++   * an email that does not exist would lock them out of an app that otherwise
++   * works entirely on their phone, so in that one case they are let through.
++   */
++  verificationEmailFailed?: boolean;
+   /** Warnings the person has said "got it" to. They stop showing and stop
+    *  counting, until the demo is reset. */
+   dismissedAlertIds?: string[];
+diff --git a/src/utils/format.ts b/src/utils/format.ts
+index e0cbeb5..f96b179 100644
+--- a/src/utils/format.ts
++++ b/src/utils/format.ts
+@@ -66,6 +66,67 @@ export function riskColor(band: RiskBand): string {
+   return colors.safe;
+ }
+ 
++/* ------------------------------------------------------------------ */
++/* Money health — the same finding, said the way round people read it   */
++/* ------------------------------------------------------------------ */
++
++/**
++ * The engines work in RISK: 0 is fine, 100 is trouble. That is the right way
++ * to compute it — every detector adds danger to a pile — but it is the wrong
++ * way to show it. A screen reading "0 / 100" under the word "Safe" looks like
++ * a failing grade, and people read a bar that is nearly empty as bad news no
++ * matter what the label above it says.
++ *
++ * So the number on screen is HEALTH: risk turned inside out. Nothing in the
++ * engine changes — this is a translation at the last possible moment, which is
++ * also why every threshold, test and alert still speaks in risk.
++ */
++export function healthFromRisk(riskScore: number): number {
++  if (!Number.isFinite(riskScore)) return 0;
++  return Math.max(0, Math.min(100, Math.round(100 - riskScore)));
++}
++
++/** h 0-360, s and l as 0-1, out as '#rrggbb'. */
++function hslToHex(hue: number, saturation: number, lightness: number): string {
++  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
++  const second = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
++  const match = lightness - chroma / 2;
++
++  const [r, g, b] =
++    hue < 60 ? [chroma, second, 0] :
++    hue < 120 ? [second, chroma, 0] :
++    hue < 180 ? [0, chroma, second] :
++    hue < 240 ? [0, second, chroma] :
++    hue < 300 ? [second, 0, chroma] :
++    [chroma, 0, second];
++
++  const channel = (value: number) =>
++    Math.round((value + match) * 255).toString(16).padStart(2, '0');
++
++  return `#${channel(r)}${channel(g)}${channel(b)}`;
++}
++
++/**
++ * Green at full health, sliding through amber to red as it falls.
++ *
++ * Continuous rather than four fixed colours, because the whole point of the
++ * gauge is that it MOVES: spending a little too much should visibly warm the
++ * dial, not leave it identical until it crosses an invisible line and jumps.
++ * Hue 0 is red and hue 140 is green, so health maps straight onto it.
++ */
++export function healthColor(health: number): string {
++  const clamped = Math.max(0, Math.min(100, health));
++  return hslToHex((clamped / 100) * 140, 0.72, 0.52);
++}
++
++/** The band, worded as health rather than as risk. */
++export function healthLabel(band: RiskBand): string {
++  if (band === 'Critical') return 'Critical';
++  if (band === 'High Risk') return 'Poor';
++  if (band === 'Caution') return 'Fair';
++  return 'Healthy';
++}
++
+ export function categoryIcon(category: TransactionCategory): string {
+   const icons: Record<TransactionCategory, string> = {
+     income: 'arrow-down-circle',
+diff --git a/tests/run-tests.ts b/tests/run-tests.ts
+index 97fa838..d517608 100644
+--- a/tests/run-tests.ts
++++ b/tests/run-tests.ts
+@@ -15,7 +15,7 @@ import {
+   sanitizePersistedState,
+ } from '../src/services/financeState';
+ import { FinanceDataset, PersistedFinanceState, Transaction } from '../src/types/finance';
+-import { plainLabel } from '../src/utils/format';
++import { healthColor, healthFromRisk, plainLabel } from '../src/utils/format';
+ import { isValidIsoDate, parseNonNegativeMoney, parsePositiveMoney } from '../src/utils/validation';
+ 
+ function assert(condition: unknown, message: string): asserts condition {
+@@ -217,6 +217,38 @@ const sanitized = sanitizePersistedState({
+ assert(sanitized?.transactions.length === 1, 'stored malformed transaction rows are discarded safely');
+ assert(sanitizePersistedState({ broken: true }) === null, 'unrecoverable saved state is rejected');
+ 
++/* ---- Money health: the same finding, said the way round people read it ---- */
++
++assert(healthFromRisk(0) === 100, 'no risk shows as full health');
++assert(healthFromRisk(100) === 0, 'maximum risk shows as no health');
++assert(healthFromRisk(78) === 22, 'health is risk turned inside out');
++assert(healthFromRisk(Number.NaN) === 0, 'a broken risk score does not render as perfect health');
++// The gauge is only honest if the colour agrees with the number. Full health
++// must be greener than red, and no health must be redder than green — the one
++// thing that would be worse than no colour is the wrong colour.
++const green = healthColor(100);
++const red = healthColor(0);
++assert(green !== red, 'full and empty health are not the same colour');
++assert(parseInt(green.slice(3, 5), 16) > parseInt(green.slice(1, 3), 16), 'full health is green, not red');
++assert(parseInt(red.slice(1, 3), 16) > parseInt(red.slice(3, 5), 16), 'no health is red, not green');
++
++/* ---- Saved state has to survive being loaded again ---- */
++
++// This one is here because it failed silently for weeks: "remember this
++// device" saved the session token correctly and then the loader threw it away,
++// so the app forgot who you were every time it was closed.
++const withSession = sanitizePersistedState({
++  ...baseState,
++  signedInAs: 'someone@example.com',
++  sessionToken: 'abc123',
++  emailVerified: true,
++  dismissedAlertIds: ['alert-1', 42],
++});
++assert(withSession?.sessionToken === 'abc123', 'a saved session token survives a reload');
++assert(withSession?.signedInAs === 'someone@example.com', 'the signed-in address survives a reload');
++assert(withSession?.emailVerified === true, 'a confirmed email stays confirmed across a reload');
++assert(withSession?.dismissedAlertIds?.length === 1, 'acknowledged warnings survive a reload, and junk in the list does not');
++
+ assert(isValidIsoDate('2026-08-29'), 'accepts a real ISO date');
+ assert(!isValidIsoDate('2026-02-29'), 'rejects an impossible non-leap date');
+ assert(parsePositiveMoney('₹1,250.50') === 1250.5, 'parses formatted positive money');
+-- 
+2.43.0
+
+
+From a6cff3febd4f03fb33b4ade1083d6d8d6f9ead99 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 09:27:30 +0000
+Subject: [PATCH 2/2] Keep the keyboard off what you are typing into
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+edgeToEdgeEnabled tells Android the window no longer fits the system
+insets, and a window that does not fit its insets is not resized for the
+keyboard — it just gets covered. Every KeyboardAvoidingView in the app
+had `behavior` unset on Android, which means it does nothing and leaves
+the work to that resize. So the keyboard sat squarely on top of the Ask
+composer, the sign-in fields and every form in a modal, with no way to
+see what had been typed.
+
+useKeyboardHeight listens for the keyboard events, which still fire and
+still carry the height, and the screens shrink themselves by that much
+by hand — doing what adjustResize used to do for us. react-native-
+keyboard-controller is the better long-term answer and is also a native
+module: a new package, a new build, no Expo Go.
+
+Applied in Screen, so every screen built on it is covered at once, and
+then by hand in Ask, sign-in, onboarding and the three modals, which do
+not use it. Ask also follows the thread down as the keyboard arrives,
+and drops its tab-bar clearance while the tab bar is behind the
+keyboard rather than leaving a dead strip above it.
+
+Also: hitSlop on the icon-only controls. A 19px glyph in a box the same
+size is the classic "I tapped it and nothing happened".
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017qsfq3JXWhwEdcaLUroXZy
+---
+ src/components/RecurringPaymentsModal.tsx |  4 +-
+ src/components/Screen.tsx                 | 51 ++++++++++++++-------
+ src/components/SettingsModal.tsx          | 10 ++++-
+ src/hooks/useKeyboardHeight.ts            | 54 +++++++++++++++++++++++
+ src/screens/AssistantScreen.tsx           | 42 +++++++++++++-----
+ src/screens/HomeScreen.tsx                |  2 +-
+ src/screens/OnboardingScreen.tsx          | 10 +++--
+ src/screens/SignInScreen.tsx              | 16 ++++---
+ src/screens/TransactionsScreen.tsx        | 10 +++--
+ 9 files changed, 157 insertions(+), 42 deletions(-)
+ create mode 100644 src/hooks/useKeyboardHeight.ts
+
+diff --git a/src/components/RecurringPaymentsModal.tsx b/src/components/RecurringPaymentsModal.tsx
+index 2d01ac8..c726b40 100644
+--- a/src/components/RecurringPaymentsModal.tsx
++++ b/src/components/RecurringPaymentsModal.tsx
+@@ -7,6 +7,7 @@ import { TransactionCategory, TRANSACTION_CATEGORIES } from '../types/finance';
+ import { formatCurrency, formatDate, plainLabel } from '../utils/format';
+ import { confirmAction, showMessage } from '../utils/alerts';
+ import { toIsoDate } from '../utils/dates';
++import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+ import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
+ import { ChoiceChips } from './ChoiceChips';
+ import { FinButton } from './FinButton';
+@@ -16,6 +17,7 @@ const paymentCategories = TRANSACTION_CATEGORIES.filter((category) => category !
+ 
+ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+   const { profile, recurringPayments, addRecurringPayment, deleteRecurringPayment } = useFinance();
++  const keyboard = useKeyboardHeight();
+   const [adding, setAdding] = useState(false);
+   const [merchant, setMerchant] = useState('');
+   const [previousAmount, setPreviousAmount] = useState('');
+@@ -71,7 +73,7 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
+ 
+   return (
+     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+-      <Pressable style={styles.backdrop} onPress={close}>
++      <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={close}>
+         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+           <View style={styles.header}>
+             <View style={styles.headerText}>
+diff --git a/src/components/Screen.tsx b/src/components/Screen.tsx
+index 2ce70ff..a9b9281 100644
+--- a/src/components/Screen.tsx
++++ b/src/components/Screen.tsx
+@@ -1,6 +1,7 @@
+ import React, { PropsWithChildren, ReactNode } from 'react';
+ import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+ import { colors, spacing } from '../theme/colors';
++import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+ 
+ interface ScreenProps extends PropsWithChildren {
+   title: string;
+@@ -11,24 +12,42 @@ interface ScreenProps extends PropsWithChildren {
+ }
+ 
+ export function Screen({ title, subtitle, action, children, refreshing = false, onRefresh }: ScreenProps) {
++  const keyboard = useKeyboardHeight();
++
+   return (
+-    <ScrollView
+-      style={styles.scroll}
+-      contentContainerStyle={styles.content}
+-      keyboardShouldPersistTaps="handled"
+-      refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} /> : undefined}
+-    >
+-      <View style={styles.inner}>
+-        <View style={styles.header}>
+-          <View style={styles.titleBlock}>
+-            <Text style={styles.title}>{title}</Text>
+-            {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
++    /**
++     * The outer View is the keyboard fix, and it belongs here rather than in
++     * each screen: every screen in the app is built out of this component, so
++     * one padding does the lot. Shrinking the container is deliberate — it
++     * makes the ScrollView's viewport smaller, which is what lets a form field
++     * near the bottom be scrolled up into what is left, exactly as Android's
++     * adjustResize used to arrange for us before edge-to-edge.
++     */
++    <View style={[styles.frame, { paddingBottom: keyboard }]}>
++      <ScrollView
++        style={styles.scroll}
++        contentContainerStyle={[
++          styles.content,
++          // The 116 is clearance for the floating tab bar. With the keyboard
++          // up the tab bar is behind it anyway, so that space is only in the
++          // way of the field being typed into.
++          keyboard > 0 && styles.contentWithKeyboard,
++        ]}
++        keyboardShouldPersistTaps="handled"
++        refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} /> : undefined}
++      >
++        <View style={styles.inner}>
++          <View style={styles.header}>
++            <View style={styles.titleBlock}>
++              <Text style={styles.title}>{title}</Text>
++              {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
++            </View>
++            {action}
+           </View>
+-          {action}
++          {children}
+         </View>
+-        {children}
+-      </View>
+-    </ScrollView>
++      </ScrollView>
++    </View>
+   );
+ }
+ 
+@@ -42,8 +61,10 @@ export function SectionTitle({ title, action }: { title: string; action?: ReactN
+ }
+ 
+ const styles = StyleSheet.create({
++  frame: { flex: 1, backgroundColor: colors.background },
+   scroll: { flex: 1, backgroundColor: colors.background },
+   content: { paddingBottom: 116 },
++  contentWithKeyboard: { paddingBottom: spacing.xl },
+   inner: { width: '100%', maxWidth: 920, alignSelf: 'center', paddingHorizontal: spacing.lg },
+   header: { paddingTop: spacing.xl, paddingBottom: spacing.xl, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
+   titleBlock: { flex: 1 },
+diff --git a/src/components/SettingsModal.tsx b/src/components/SettingsModal.tsx
+index 4bef32a..950f18f 100644
+--- a/src/components/SettingsModal.tsx
++++ b/src/components/SettingsModal.tsx
+@@ -10,6 +10,7 @@ import { APP_NAME } from '../theme/brand';
+ import { confirmAction, showMessage } from '../utils/alerts';
+ import { toIsoDate } from '../utils/dates';
+ import { formatDate } from '../utils/format';
++import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+ import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
+ import { BackupCard } from './BackupCard';
+ import { FinButton } from './FinButton';
+@@ -30,6 +31,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
+     snapshot,
+     eraseLocalData,
+   } = useFinance();
++  const keyboard = useKeyboardHeight();
+   const [view, setView] = useState<SettingsView>('main');
+   const [name, setName] = useState(profile.name);
+   const [income, setIncome] = useState(String(profile.monthlyIncome));
+@@ -142,7 +144,11 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
+ 
+   return (
+     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+-      <Pressable style={styles.backdrop} onPress={close}>
++      {/* paddingBottom is the keyboard fix: edge-to-edge stopped Android
++          resizing the window, and a Modal never got that treatment anyway.
++          Shrinking the backdrop shrinks the sheet inside it, so a field near
++          the bottom can be scrolled up into what is left. */}
++      <Pressable style={[styles.backdrop, { paddingBottom: keyboard + spacing.lg }]} onPress={close}>
+         <Pressable style={styles.panel} onPress={(event) => event.stopPropagation()}>
+           <View style={styles.header}>
+             <View style={styles.headerText}>
+@@ -155,7 +161,7 @@ export function SettingsModal({ visible, onClose }: { visible: boolean; onClose:
+               <Text style={styles.title}>{view === 'profile' ? 'Edit your money details' : 'Settings & privacy'}</Text>
+               <Text style={styles.subtitle}>{view === 'profile' ? `Information updated to ${formatDate(profile.analysisDate ?? toIsoDate(new Date()), true)}` : 'Your information stays on this device.'}</Text>
+             </View>
+-            <Pressable accessibilityLabel="Close settings" onPress={close} style={styles.close}>
++            <Pressable accessibilityLabel="Close settings" onPress={close} hitSlop={12} style={styles.close}>
+               <Feather name="x" size={20} color={colors.text} />
+             </Pressable>
+           </View>
+diff --git a/src/hooks/useKeyboardHeight.ts b/src/hooks/useKeyboardHeight.ts
+new file mode 100644
+index 0000000..f9ea88b
+--- /dev/null
++++ b/src/hooks/useKeyboardHeight.ts
+@@ -0,0 +1,54 @@
++/**
++ * useKeyboardHeight — how many pixels of the screen the keyboard is covering.
++ *
++ * WHY THIS EXISTS AT ALL
++ * Android used to solve this for us. `adjustResize` shrank the window when the
++ * keyboard appeared, every layout reflowed into what was left, and nothing in
++ * the app had to know the keyboard existed.
++ *
++ * Edge-to-edge turned that off. Drawing behind the system bars means telling
++ * Android the window no longer fits the system insets, and a window that does
++ * not fit its insets is not resized for the keyboard either — it just gets
++ * covered. React Native's own KeyboardAvoidingView is written for the resizing
++ * world and, with `behavior` unset on Android, does nothing at all. Which is
++ * exactly what was happening: type into "Ask", and the keyboard sat on top of
++ * the box you were typing into.
++ *
++ * The keyboard EVENTS still fire, though, and they carry the height. So this
++ * listens for them and hands back the number, and the screens use it to shrink
++ * themselves by hand — doing what adjustResize used to do, deliberately.
++ *
++ * The alternative was react-native-keyboard-controller, which is the better
++ * long-term answer and is also a native module: a new package, a new build,
++ * and no Expo Go. Thirty lines is the cheaper trade today.
++ */
++
++import { useEffect, useState } from 'react';
++import { Keyboard, Platform } from 'react-native';
++
++export function useKeyboardHeight(): number {
++  const [height, setHeight] = useState(0);
++
++  useEffect(() => {
++    /**
++     * iOS reports the keyboard before it animates in, so the layout moves with
++     * it. Android only reports it once it has arrived — `Will` events exist
++     * there but fire inconsistently across versions, and a listener that
++     * sometimes fires is worse than one that always fires slightly late.
++     */
++    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
++    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
++
++    const shown = Keyboard.addListener(showEvent, (event) => {
++      setHeight(event.endCoordinates?.height ?? 0);
++    });
++    const hidden = Keyboard.addListener(hideEvent, () => setHeight(0));
++
++    return () => {
++      shown.remove();
++      hidden.remove();
++    };
++  }, []);
++
++  return height;
++}
+diff --git a/src/screens/AssistantScreen.tsx b/src/screens/AssistantScreen.tsx
+index 1eb84e1..c3ce5b3 100644
+--- a/src/screens/AssistantScreen.tsx
++++ b/src/screens/AssistantScreen.tsx
+@@ -8,10 +8,8 @@
+  */
+ 
+ import { Feather } from '@expo/vector-icons';
+-import React, { useCallback, useRef, useState } from 'react';
++import React, { useCallback, useEffect, useRef, useState } from 'react';
+ import {
+-  KeyboardAvoidingView,
+-  Platform,
+   Pressable,
+   ScrollView,
+   StyleSheet,
+@@ -24,6 +22,7 @@ import { useFinance } from '../context/FinanceContext';
+ import { answerQuestion, STARTER_QUESTIONS } from '../engine/assistantEngine';
+ import { askLanguageModel, buildFigures, isLanguageModelAvailable } from '../services/gemini';
+ import { colors, radii, spacing } from '../theme/colors';
++import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+ 
+ interface Message {
+   id: string;
+@@ -51,6 +50,19 @@ export function AssistantScreen() {
+   const [suggestions, setSuggestions] = useState<string[]>(STARTER_QUESTIONS);
+   const [draft, setDraft] = useState('');
+   const scroller = useRef<ScrollView>(null);
++  const keyboard = useKeyboardHeight();
++
++  /**
++   * When the keyboard arrives the thread gets shorter, so the last thing said
++   * scrolls off the top. Follow it down, or the reply you are asking about
++   * disappears the moment you start typing.
++   */
++  useEffect(() => {
++    if (keyboard > 0) {
++      const timer = setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), 80);
++      return () => clearTimeout(timer);
++    }
++  }, [keyboard]);
+ 
+   const ask = useCallback(async (question: string) => {
+     const trimmed = question.trim();
+@@ -94,11 +106,16 @@ export function AssistantScreen() {
+   }, [profile, summary, forecast, prediction, learned, transactions]);
+ 
+   return (
+-    <KeyboardAvoidingView
+-      style={styles.screen}
+-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+-      keyboardVerticalOffset={12}
+-    >
++    /**
++     * Shrink the whole screen by the height of the keyboard, by hand.
++     *
++     * This used to be a KeyboardAvoidingView with `behavior` unset on Android,
++     * which on Android means it does nothing and leaves the work to the OS
++     * resizing the window — and edge-to-edge stopped the OS doing that. The
++     * result was the keyboard sitting squarely on top of the box you were
++     * typing into, with no way to see what you had written.
++     */
++    <View style={[styles.screen, { paddingBottom: keyboard }]}>
+       <View style={styles.header}>
+         <Text style={styles.title}>Ask</Text>
+         <View style={styles.offlineChip}>
+@@ -149,7 +166,11 @@ export function AssistantScreen() {
+         </ScrollView>
+       ) : null}
+ 
+-      <View style={styles.composer}>
++      {/* 96px of clearance for the floating tab bar, but only while the tab
++          bar is visible. With the keyboard up it is behind the keyboard, and
++          that clearance becomes a strip of dead space wedged between what you
++          are typing and the keyboard. */}
++      <View style={[styles.composer, keyboard > 0 && styles.composerWithKeyboard]}>
+         <TextInput
+           style={styles.input}
+           value={draft}
+@@ -169,7 +190,7 @@ export function AssistantScreen() {
+           <Feather name="arrow-up" size={18} color={colors.black} />
+         </Pressable>
+       </View>
+-    </KeyboardAvoidingView>
++    </View>
+   );
+ }
+ 
+@@ -217,6 +238,7 @@ const styles = StyleSheet.create({
+     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+     paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 96,
+   },
++  composerWithKeyboard: { paddingBottom: spacing.md },
+   input: {
+     flex: 1, color: colors.text, fontSize: 14,
+     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+diff --git a/src/screens/HomeScreen.tsx b/src/screens/HomeScreen.tsx
+index d0ef7cc..f1064c5 100644
+--- a/src/screens/HomeScreen.tsx
++++ b/src/screens/HomeScreen.tsx
+@@ -23,7 +23,7 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: ()
+       <Screen
+         title={profile.name ? `Hello, ${profile.name}` : 'Your money'}
+         subtitle={`${month} · A simple look at your money`}
+-        action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
++        action={<Pressable accessibilityLabel="Open settings" onPress={onOpenSettings} hitSlop={10} style={styles.settings}><Feather name="settings" size={19} color={colors.textSecondary} /></Pressable>}
+       >
+         <View style={styles.dataStatus} accessible accessibilityLabel={`${profile.id.startsWith('demo-') ? 'Demo' : 'Local'} data evaluated ${formatDate(dashboardDate, true)}`}>
+           <Feather name={profile.id.startsWith('demo-') ? 'play-circle' : 'lock'} size={14} color={colors.primary} />
+diff --git a/src/screens/OnboardingScreen.tsx b/src/screens/OnboardingScreen.tsx
+index 76a46aa..3fa71cb 100644
+--- a/src/screens/OnboardingScreen.tsx
++++ b/src/screens/OnboardingScreen.tsx
+@@ -1,6 +1,6 @@
+ import { Feather } from '@expo/vector-icons';
+ import React, { useState } from 'react';
+-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
++import { ScrollView, StyleSheet, Text, View } from 'react-native';
+ import { FinButton } from '../components/FinButton';
+ import { FormField } from '../components/FormField';
+ import { useFinance } from '../context/FinanceContext';
+@@ -8,11 +8,13 @@ import { colors, radii, spacing } from '../theme/colors';
+ import { APP_NAME, APP_TAGLINE } from '../theme/brand';
+ import { UserProfile } from '../types/finance';
+ import { addDays, toIsoDate } from '../utils/dates';
++import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+ import { isDateOnOrAfter, parseNonNegativeMoney, parsePositiveMoney } from '../utils/validation';
+ 
+ export function OnboardingScreen() {
+   const today = toIsoDate(new Date());
+   const { useDemoAccount, completeCustomSetup } = useFinance();
++  const keyboard = useKeyboardHeight();
+   const [custom, setCustom] = useState(false);
+   const [name, setName] = useState('');
+   const [income, setIncome] = useState('');
+@@ -43,7 +45,9 @@ export function OnboardingScreen() {
+     completeCustomSetup(profile);
+   };
+   return (
+-    <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
++    // Shrunk by hand rather than by KeyboardAvoidingView, which does nothing
++    // on Android once edge-to-edge stops the window being resized.
++    <View style={[styles.page, { paddingBottom: keyboard }]}>
+       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+         <View style={styles.brandIcon}><Feather name="shield" size={34} color={colors.primary} /></View>
+         <Text style={styles.brand}>{APP_NAME}</Text>
+@@ -75,7 +79,7 @@ export function OnboardingScreen() {
+           </View>
+         )}
+       </ScrollView>
+-    </KeyboardAvoidingView>
++    </View>
+   );
+ }
+ 
+diff --git a/src/screens/SignInScreen.tsx b/src/screens/SignInScreen.tsx
+index 6e8d2cb..7a8bea0 100644
+--- a/src/screens/SignInScreen.tsx
++++ b/src/screens/SignInScreen.tsx
+@@ -29,8 +29,6 @@ import React, { useEffect, useState } from 'react';
+ import {
+   ActivityIndicator,
+   Image,
+-  KeyboardAvoidingView,
+-  Platform,
+   Pressable,
+   ScrollView,
+   StyleSheet,
+@@ -52,6 +50,7 @@ import { fetchBackup } from '../services/backup';
+ import { APP_NAME } from '../theme/brand';
+ import { colors, radii, spacing } from '../theme/colors';
+ import { PersistedFinanceState } from '../types/finance';
++import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+ 
+ type Stage = 'in' | 'up' | 'forgot' | 'forgot-sent';
+ 
+@@ -82,6 +81,7 @@ export function SignInScreen({ onSignedIn }: Props) {
+   const [error, setError] = useState<string | null>(null);
+   const [note, setNote] = useState<string | null>(null);
+   const [cooldown, setCooldown] = useState(0);
++  const keyboard = useKeyboardHeight();
+ 
+   /** One tick a second while a cooldown is running, then it stops itself. */
+   useEffect(() => {
+@@ -252,7 +252,7 @@ export function SignInScreen({ onSignedIn }: Props) {
+ 
+   if (stage === 'forgot') {
+     return (
+-      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
++      <View style={[styles.screen, { paddingBottom: keyboard }]}>
+         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+           <View style={styles.brand}>
+             <View style={styles.tick}>
+@@ -299,14 +299,17 @@ export function SignInScreen({ onSignedIn }: Props) {
+             <Text style={styles.ghostText}>Back to sign in</Text>
+           </Pressable>
+         </ScrollView>
+-      </KeyboardAvoidingView>
++      </View>
+     );
+   }
+ 
+   /* ---- Sign in / sign up ---- */
+ 
+   return (
+-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
++    // The sign-in fields sit low on the screen and the keyboard covered them
++    // outright on Android, where edge-to-edge stops the window being resized.
++    // Shrinking the container by the keyboard's own height puts them back.
++    <View style={[styles.screen, { paddingBottom: keyboard }]}>
+       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+         <View style={styles.brand}>
+           <Image
+@@ -353,6 +356,7 @@ export function SignInScreen({ onSignedIn }: Props) {
+             accessibilityRole="button"
+             accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+             onPress={() => setShowPassword((current) => !current)}
++            hitSlop={12}
+             style={styles.eye}
+           >
+             <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#6B6B6B" />
+@@ -433,7 +437,7 @@ export function SignInScreen({ onSignedIn }: Props) {
+             : 'Accounts are not switched on in this build.'}
+         </Text>
+       </ScrollView>
+-    </KeyboardAvoidingView>
++    </View>
+   );
+ }
+ 
+diff --git a/src/screens/TransactionsScreen.tsx b/src/screens/TransactionsScreen.tsx
+index 2afa027..b9bbe2a 100644
+--- a/src/screens/TransactionsScreen.tsx
++++ b/src/screens/TransactionsScreen.tsx
+@@ -16,12 +16,14 @@ import { colors, radii, spacing } from '../theme/colors';
+ import { Transaction, TransactionCategory, TransactionDirection, TRANSACTION_CATEGORIES } from '../types/finance';
+ import { confirmAction, showMessage } from '../utils/alerts';
+ import { toIsoDate } from '../utils/dates';
++import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+ import { isValidIsoDate, parsePositiveMoney } from '../utils/validation';
+ 
+ type CategoryFilter = 'all' | TransactionCategory;
+ 
+ export function TransactionsScreen() {
+   const { transactions, profile, addTransaction, deleteTransaction, importTransactions, setTransactionCategory } = useFinance();
++  const keyboard = useKeyboardHeight();
+   const [search, setSearch] = useState('');
+   const [filter, setFilter] = useState<CategoryFilter>('all');
+   const [addVisible, setAddVisible] = useState(false);
+@@ -166,11 +168,11 @@ export function TransactionsScreen() {
+       </Screen>
+ 
+       <Modal visible={addVisible} transparent animationType="slide" onRequestClose={() => setAddVisible(false)}>
+-        <Pressable style={styles.backdrop} onPress={() => setAddVisible(false)}>
++        <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={() => setAddVisible(false)}>
+           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+             <View style={styles.modalHeader}>
+               <Text style={styles.modalTitle}>Add money in or out</Text>
+-              <Pressable accessibilityLabel="Close add money form" onPress={() => setAddVisible(false)}>
++              <Pressable accessibilityLabel="Close add money form" onPress={() => setAddVisible(false)} hitSlop={14}>
+                 <Feather name="x" size={22} color={colors.text} />
+               </Pressable>
+             </View>
+@@ -206,11 +208,11 @@ export function TransactionsScreen() {
+ 
+       {/* ---- Correcting a payment ---- */}
+       <Modal visible={editing !== null} transparent animationType="slide" onRequestClose={() => setEditing(null)}>
+-        <Pressable style={styles.backdrop} onPress={() => setEditing(null)}>
++        <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={() => setEditing(null)}>
+           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+             <View style={styles.modalHeader}>
+               <Text style={styles.modalTitle}>{editing?.merchant}</Text>
+-              <Pressable accessibilityLabel="Close" onPress={() => setEditing(null)}>
++              <Pressable accessibilityLabel="Close" onPress={() => setEditing(null)} hitSlop={14}>
+                 <Feather name="x" size={22} color={colors.text} />
+               </Pressable>
+             </View>
+-- 
+2.43.0
+

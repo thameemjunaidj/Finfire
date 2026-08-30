@@ -1,0 +1,161 @@
+From c405d6a098169f32011a928e3770187c19e103de Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 10:26:00 +0000
+Subject: [PATCH] Stop the bottom sheets fighting the keyboard
+
+Two bugs, one cause: the add-money sheet was being treated like a normal
+screen.
+
+Shrinking the container was right for the full screens and wrong here. A
+bottom sheet is anchored to the bottom, so shrinking it drags the whole
+form downwards into the keyboard it was trying to escape. Worse, on
+Android a Modal is its own window and the keyboard height sometimes
+reads as zero inside one, so the sheet did not move at all and the
+fields simply sat behind the keyboard.
+
+The sheet stays put now, and its scroll content gains room underneath
+equal to the keyboard's height. The field being typed into can be
+scrolled up into the part still visible, and when the height reads zero
+the padding is zero and we are no worse off than before.
+
+Separately: opening "Add money" straight from the search box left that
+keyboard standing while the sheet animated up behind it, and the two
+arrived half-drawn on top of each other. The sheet brings its own
+keyboard when a field is tapped; it should not inherit the last
+screen's.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017qsfq3JXWhwEdcaLUroXZy
+---
+ src/components/RecurringPaymentsModal.tsx | 10 ++++--
+ src/screens/TransactionsScreen.tsx        | 44 ++++++++++++++++++++---
+ 2 files changed, 47 insertions(+), 7 deletions(-)
+
+diff --git a/src/components/RecurringPaymentsModal.tsx b/src/components/RecurringPaymentsModal.tsx
+index c726b40..db8eaf4 100644
+--- a/src/components/RecurringPaymentsModal.tsx
++++ b/src/components/RecurringPaymentsModal.tsx
+@@ -73,7 +73,7 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
+ 
+   return (
+     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+-      <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={close}>
++      <Pressable style={styles.backdrop} onPress={close}>
+         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+           <View style={styles.header}>
+             <View style={styles.headerText}>
+@@ -84,7 +84,13 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
+               <Feather name="x" size={20} color={colors.text} />
+             </Pressable>
+           </View>
+-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
++          {/* Same as the add sheet: scrollable room under the last field
++              rather than a shrinking sheet, which on a bottom-anchored
++              panel drags the form down behind the keyboard. */}
++          <ScrollView
++            keyboardShouldPersistTaps="handled"
++            contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.xxxl + keyboard }]}
++          >
+             {!adding ? (
+               <>
+                 <FinButton label="Add an upcoming bill" icon="plus" onPress={() => setAdding(true)} />
+diff --git a/src/screens/TransactionsScreen.tsx b/src/screens/TransactionsScreen.tsx
+index cca179d..56c22fb 100644
+--- a/src/screens/TransactionsScreen.tsx
++++ b/src/screens/TransactionsScreen.tsx
+@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
+ import * as DocumentPicker from 'expo-document-picker';
+ import { File } from 'expo-file-system';
+ import React, { useEffect, useMemo, useState } from 'react';
+-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
++import { Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+ import { ChoiceChips } from '../components/ChoiceChips';
+ import { FinButton } from '../components/FinButton';
+ import { DatePickerField } from '../components/DatePickerField';
+@@ -44,6 +44,7 @@ export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
+    */
+   useEffect(() => {
+     if (!openAddOnMount) return;
++    Keyboard.dismiss();
+     setAddVisible(true);
+     onAddOpened?.();
+   }, [openAddOnMount, onAddOpened]);
+@@ -59,6 +60,15 @@ export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
+     .sort((a, b) => b.date.localeCompare(a.date)), [filter, search, transactions]);
+ 
+   const openAdd = () => {
++    /**
++     * Put the keyboard away before the sheet slides in.
++     *
++     * Opening "Add money" straight from the search box left that keyboard
++     * standing while the sheet animated up behind it, and the two arrived
++     * half-drawn on top of each other. The sheet brings its own keyboard when
++     * a field is tapped; it should not inherit the last screen's.
++     */
++    Keyboard.dismiss();
+     setDate(profile.analysisDate ?? toIsoDate(new Date()));
+     setAddVisible(true);
+   };
+@@ -185,7 +195,7 @@ export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
+       </Screen>
+ 
+       <Modal visible={addVisible} transparent animationType="slide" onRequestClose={() => setAddVisible(false)}>
+-        <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={() => setAddVisible(false)}>
++        <Pressable style={styles.backdrop} onPress={() => setAddVisible(false)}>
+           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+             <View style={styles.modalHeader}>
+               <Text style={styles.modalTitle}>Add money in or out</Text>
+@@ -193,7 +203,19 @@ export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
+                 <Feather name="x" size={22} color={colors.text} />
+               </Pressable>
+             </View>
+-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
++            {/* The room below the last field is what makes this work.
++                Shrinking the sheet was the obvious fix and the wrong one: a
++                bottom sheet is anchored to the bottom, so shrinking it drags
++                the whole form down behind the keyboard as it goes. Leaving it
++                put and adding scrollable space underneath lets the field being
++                typed into be scrolled up into the part still visible — and it
++                degrades honestly, because on Android a Modal is its own window
++                and the keyboard height sometimes reads as zero in here. Zero
++                extra padding is then just the layout we had before. */}
++            <ScrollView
++              keyboardShouldPersistTaps="handled"
++              contentContainerStyle={[styles.sheetContent, { paddingBottom: spacing.xxxl + keyboard }]}
++            >
+               <Text style={styles.fieldLabel}>Is this money in or money out?</Text>
+               <ChoiceChips values={['debit', 'credit']} selected={direction} onSelect={changeDirection} />
+               <View style={styles.firstField}>
+@@ -225,7 +247,7 @@ export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
+ 
+       {/* ---- Correcting a payment ---- */}
+       <Modal visible={editing !== null} transparent animationType="slide" onRequestClose={() => setEditing(null)}>
+-        <Pressable style={[styles.backdrop, { paddingBottom: keyboard }]} onPress={() => setEditing(null)}>
++        <Pressable style={styles.backdrop} onPress={() => setEditing(null)}>
+           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+             <View style={styles.modalHeader}>
+               <Text style={styles.modalTitle}>{editing?.merchant}</Text>
+@@ -234,7 +256,19 @@ export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
+               </Pressable>
+             </View>
+ 
+-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
++            {/* The room below the last field is what makes this work.
++                Shrinking the sheet was the obvious fix and the wrong one: a
++                bottom sheet is anchored to the bottom, so shrinking it drags
++                the whole form down behind the keyboard as it goes. Leaving it
++                put and adding scrollable space underneath lets the field being
++                typed into be scrolled up into the part still visible — and it
++                degrades honestly, because on Android a Modal is its own window
++                and the keyboard height sometimes reads as zero in here. Zero
++                extra padding is then just the layout we had before. */}
++            <ScrollView
++              keyboardShouldPersistTaps="handled"
++              contentContainerStyle={[styles.sheetContent, { paddingBottom: spacing.xxxl + keyboard }]}
++            >
+               <Text style={styles.correctionNote}>
+                 {editing ? `${editing.direction === 'debit' ? 'Paid' : 'Received'} ₹${Math.round(editing.amount)} on ${editing.date}.` : ''}
+               </Text>
+-- 
+2.43.0
+

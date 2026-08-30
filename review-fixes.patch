@@ -1,0 +1,542 @@
+From ab69f08715d70c6ac5feac7afd543d5761ce4e7d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 10:21:09 +0000
+Subject: [PATCH] Wait for a week of evidence before scoring anyone
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+₹2,000 of pocket money with ₹1,500 already spent was reading as perfect
+health. Not a scoring bug — the detectors were behaving correctly. Every
+one of them compares this week against a normal, one day of history has
+no normal in it, so they all found nothing and reported nothing wrong.
+Absence of evidence rendered as evidence of absence, in green, at 100
+out of 100.
+
+So nothing gets a number until there is a week of spending AND at least
+three payments. Either alone can be met without evidence: seven days can
+be one backdated entry, three payments can all be from this morning.
+A week is also the shortest span where "unusual" means anything, because
+spending is weekly — a baseline that has not seen a weekend calls every
+Saturday a surge.
+
+Until then Home shows how far off it is (3/7, with a bar) instead of a
+score, and the Future tab says the same rather than announcing a 100%
+chance of running out on a named date off a single observation. A
+confident date built on one data point is a guess wearing a decimal
+point, and the reader cannot tell the difference. Importing a bank
+statement clears the gate in one go, which is the intended way in.
+
+Also in here, both from testing on the phone:
+
+- Onboarding and Try It still asked for dates as typed YYYY-MM-DD text
+  while every other date field had a calendar. Now they have it too, and
+  Try It's window is enforced by the picker rather than explained in
+  grey text underneath.
+- The Home empty state was a card telling you to go to the Spending tab.
+  Telling someone where to tap, on a screen you could have made
+  tappable, is a dead end with instructions written on it. It is a
+  button now, and it lands on the add form with the sheet already open.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017qsfq3JXWhwEdcaLUroXZy
+---
+ App.tsx                            | 18 +++++-
+ src/engine/financeEngine.ts        | 29 +++++++++
+ src/screens/ForecastScreen.tsx     | 32 +++++++++-
+ src/screens/HomeScreen.tsx         | 98 ++++++++++++++++++++++++++----
+ src/screens/OnboardingScreen.tsx   | 14 ++++-
+ src/screens/SimulatorScreen.tsx    | 15 ++++-
+ src/screens/TransactionsScreen.tsx | 21 ++++++-
+ src/types/finance.ts               | 15 +++++
+ tests/run-tests.ts                 | 33 ++++++++++
+ 9 files changed, 256 insertions(+), 19 deletions(-)
+
+diff --git a/App.tsx b/App.tsx
+index e2c794b..cd24606 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -35,6 +35,9 @@ function FinFireApp() {
+   const { loaded, onboardingComplete, signedInAs, emailVerified, signIn, summary } = useFinance();
+   const [tab, setTab] = useState<AppTab>('home');
+   const [settingsVisible, setSettingsVisible] = useState(false);
++  /** Set when Home sends you to Spending to add something, so the sheet is
++   *  already open when you arrive instead of asking for one more tap. */
++  const [openAddPayment, setOpenAddPayment] = useState(false);
+   useEffect(() => {
+     void initializeNotifications();
+   }, []);
+@@ -67,10 +70,21 @@ function FinFireApp() {
+   return (
+     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
+       <View style={styles.app}>
+-        {tab === 'home' ? <HomeScreen onViewAlerts={() => setTab('alerts')} onOpenSettings={() => setSettingsVisible(true)} /> : null}
++        {tab === 'home' ? (
++          <HomeScreen
++            onViewAlerts={() => setTab('alerts')}
++            onOpenSettings={() => setSettingsVisible(true)}
++            onAddSpending={() => { setOpenAddPayment(true); setTab('transactions'); }}
++          />
++        ) : null}
+         {tab === 'forecast' ? <ForecastScreen /> : null}
+         {tab === 'alerts' ? <AlertsScreen /> : null}
+-        {tab === 'transactions' ? <TransactionsScreen /> : null}
++        {tab === 'transactions' ? (
++          <TransactionsScreen
++            openAddOnMount={openAddPayment}
++            onAddOpened={() => setOpenAddPayment(false)}
++          />
++        ) : null}
+         {tab === 'simulator' ? <SimulatorScreen /> : null}
+         {tab === 'assistant' ? <AssistantScreen /> : null}
+         <BottomTabs active={tab} onChange={setTab} alertCount={summary.alerts.length} />
+diff --git a/src/engine/financeEngine.ts b/src/engine/financeEngine.ts
+index 713fc42..2dd1105 100644
+--- a/src/engine/financeEngine.ts
++++ b/src/engine/financeEngine.ts
+@@ -35,6 +35,24 @@ function createAlert(alert: FinancialAlert): FinancialAlert {
+   return alert;
+ }
+ 
++/**
++ * How much history before the app is willing to put a number on anything.
++ *
++ * A week, and at least three payments. Both, because either one alone can be
++ * satisfied without any real evidence: seven days can be a single backdated
++ * entry, and three payments can all be from this morning. Together they mean
++ * the app has actually watched someone spend for a while.
++ *
++ * A week is also the shortest span where "unusual" means anything, because
++ * spending is weekly — weekends cost more than Tuesdays, and a baseline that
++ * has not seen a weekend will call every Saturday a surge.
++ *
++ * Importing a bank statement clears both in one go, which is the intended
++ * route in. Entering payments by hand takes longer, and should.
++ */
++export const MINIMUM_HISTORY_DAYS = 7;
++const MINIMUM_HISTORY_ENTRIES = 3;
++
+ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSummary {
+   const { profile, transactions, recurringPayments } = dataset;
+   const asOf = profile.analysisDate ?? toIsoDate(new Date());
+@@ -72,6 +90,13 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
+    * to a month. Then a surge means "this week is unlike your other weeks",
+    * which is a real signal and works from about two weeks of history.
+    */
++  // Inclusive: a payment entered today is one day of history, not zero.
++  const daysOfHistory = debitTransactions.length
++    ? Math.max(1, daysBetween(earliestDate, asOf) + 1)
++    : 0;
++  const hasEnoughHistory = daysOfHistory >= MINIMUM_HISTORY_DAYS
++    && debitTransactions.length >= MINIMUM_HISTORY_ENTRIES;
++
+   const priorWindowEnd = addDays(asOf, -7);
+   const priorRows = debitTransactions.filter((item) => item.date <= priorWindowEnd);
+   const priorDays = priorRows.length ? Math.max(1, daysBetween(earliestDate, priorWindowEnd)) : 0;
+@@ -109,6 +134,8 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
+ 
+     return {
+       hasSpendingHistory: false,
++      daysOfHistory: 0,
++      hasEnoughHistory: false,
+       riskScore: noMoney ? 30 : 0,
+       riskBand: noMoney ? 'Caution' : 'Safe',
+       riskExplanation: noMoney
+@@ -372,6 +399,8 @@ export function calculateFinancialSummary(dataset: FinanceDataset): FinancialSum
+ 
+   return {
+     hasSpendingHistory: true,
++    daysOfHistory,
++    hasEnoughHistory,
+     riskScore,
+     riskBand,
+     riskExplanation,
+diff --git a/src/screens/ForecastScreen.tsx b/src/screens/ForecastScreen.tsx
+index 3381fd0..88c3c09 100644
+--- a/src/screens/ForecastScreen.tsx
++++ b/src/screens/ForecastScreen.tsx
+@@ -11,6 +11,7 @@ import { StyleSheet, Text, View } from 'react-native';
+ 
+ import { MetricCard } from '../components/MetricCard';
+ import { Screen, SectionTitle } from '../components/Screen';
++import { MINIMUM_HISTORY_DAYS } from '../engine/financeEngine';
+ import { useFinance } from '../context/FinanceContext';
+ import { colors, radii, spacing } from '../theme/colors';
+ import { CategoryForecast, SavingsAction } from '../types/finance';
+@@ -75,7 +76,7 @@ function ActionCard({ action, index }: { action: SavingsAction; index: number })
+ }
+ 
+ export function ForecastScreen() {
+-  const { forecast, prediction, narrative, learned, profile, transactions } = useFinance();
++  const { forecast, prediction, narrative, learned, profile, summary, transactions } = useFinance();
+   /** The sample account is the only one whose figures are not the person's own. */
+   const isSample = profile.id.startsWith('demo-');
+   const widest = Math.max(
+@@ -87,6 +88,35 @@ export function ForecastScreen() {
+   const chanceOutOf100 = Math.round(prediction.shortfallProbability * 100);
+   const risky = prediction.shortfallProbability >= 0.2;
+ 
++  /**
++   * Same gate as the health score on Home, and for the same reason.
++   *
++   * From one day of spending this screen was announcing a 100% chance of
++   * running out on a named date. The simulation is doing exactly what it was
++   * asked to — running one day's rate forward two thousand times — but a
++   * confident date built on a single observation is a guess wearing a
++   * decimal point, and nobody reading it can tell the difference.
++   */
++  if (transactions.length > 0 && !summary.hasEnoughHistory) {
++    const daysToGo = MINIMUM_HISTORY_DAYS - Math.min(summary.daysOfHistory, MINIMUM_HISTORY_DAYS);
++    return (
++      <Screen title="Your month ahead" subtitle="Not enough to forecast from yet.">
++        <View style={styles.emptyCard}>
++          <Text style={styles.emptyText}>
++            {`So far there ${summary.daysOfHistory === 1 ? 'is' : 'are'} ${summary.daysOfHistory} `
++              + `${summary.daysOfHistory === 1 ? 'day' : 'days'} of spending on file. `
++              + `Predicting the rest of the month from that would give you a date and a `
++              + `percentage that look precise and are not.`}
++            {'\n\n'}
++            {`${daysToGo} more ${daysToGo === 1 ? 'day' : 'days'} and this fills in: where the `
++              + `month is heading, the chance of running short, and what to cut to change it. `
++              + `Importing a bank statement does it in one go.`}
++          </Text>
++        </View>
++      </Screen>
++    );
++  }
++
+   if (transactions.length === 0) {
+     return (
+       <Screen title="Your month ahead" subtitle="Nothing to look ahead at yet.">
+diff --git a/src/screens/HomeScreen.tsx b/src/screens/HomeScreen.tsx
+index f1064c5..6e7534f 100644
+--- a/src/screens/HomeScreen.tsx
++++ b/src/screens/HomeScreen.tsx
+@@ -7,12 +7,18 @@ import { MetricCard } from '../components/MetricCard';
+ import { RiskGauge } from '../components/RiskGauge';
+ import { Screen, SectionTitle } from '../components/Screen';
+ import { useFinance } from '../context/FinanceContext';
++import { MINIMUM_HISTORY_DAYS } from '../engine/financeEngine';
+ import { colors, radii, spacing } from '../theme/colors';
+ import { FinancialAlert } from '../types/finance';
+ import { toIsoDate } from '../utils/dates';
+ import { formatCurrency, formatDate, formatWhenKnown, healthColor, healthFromRisk } from '../utils/format';
+ 
+-export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: () => void; onOpenSettings: () => void }) {
++export function HomeScreen({ onViewAlerts, onOpenSettings, onAddSpending }: {
++  onViewAlerts: () => void;
++  onOpenSettings: () => void;
++  /** Jumps to the Spending tab with the "add money" sheet already open. */
++  onAddSpending: () => void;
++}) {
+   const { profile, summary, transactions } = useFinance();
+   const [selectedAlert, setSelectedAlert] = useState<FinancialAlert | null>(null);
+   const maxSpend = Math.max(...summary.monthlySpend.map((item) => item.amount), 1);
+@@ -32,21 +38,66 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: ()
+         {/* A brand-new account used to land on a screen of zeroes with no clue
+             what to do. Everything below needs spending to mean anything, so
+             until there is some, this is the whole screen. */}
++        {/* This used to be a card that TOLD you to go to the Spending tab.
++            Telling someone where to tap, on a screen you could have made
++            tappable, is a dead end with instructions written on it. */}
+         {transactions.length === 0 ? (
+-          <View style={styles.firstRun}>
++          <Pressable
++            accessibilityRole="button"
++            accessibilityLabel="Add your first payment"
++            onPress={onAddSpending}
++            style={({ pressed }) => [styles.firstRun, pressed && styles.firstRunPressed]}
++          >
+             <Feather name="plus-circle" size={28} color={colors.primary} />
+             <Text style={styles.firstRunTitle}>Add your first few payments</Text>
+             <Text style={styles.firstRunText}>
+-              Go to the Spending tab and add what you have spent — by hand, or import a statement
+-              from your bank. Once there are a few days in here, this screen starts warning you
+-              about what is coming.
++              Tap here to add what you have spent, or import a statement from your bank. After a
++              week of spending this screen starts warning you about what is coming.
+             </Text>
+-          </View>
++            <View style={styles.firstRunCta}>
++              <Text style={styles.firstRunCtaText}>Add a payment</Text>
++              <Feather name="arrow-right" size={14} color={colors.black} />
++            </View>
++          </Pressable>
+         ) : null}
+ 
+         {transactions.length > 0 ? (
+           <>
+-        <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
++        {/* A score needs something to score. Until there is a week of
++            spending behind it, this says how far off that is instead of
++            inventing a number — ₹2,000 of pocket money with ₹1,500 already
++            gone was reading as perfect health, because nothing had been
++            watched for long enough to look wrong. */}
++        {summary.hasEnoughHistory ? (
++          <RiskGauge score={summary.riskScore} band={summary.riskBand} explanation={summary.riskExplanation} />
++        ) : (
++          <View style={styles.building}>
++            <View style={styles.buildingTop}>
++              <View>
++                <Text style={styles.buildingEyebrow}>YOUR MONEY HEALTH</Text>
++                <Text style={styles.buildingTitle}>Still learning</Text>
++              </View>
++              <View style={styles.buildingCount}>
++                <Text style={styles.buildingCountText}>
++                  {Math.min(summary.daysOfHistory, MINIMUM_HISTORY_DAYS)}/{MINIMUM_HISTORY_DAYS}
++                </Text>
++              </View>
++            </View>
++            <View style={styles.buildingTrack}>
++              <View
++                style={[
++                  styles.buildingFill,
++                  { width: `${Math.max(5, Math.min(100, (summary.daysOfHistory / MINIMUM_HISTORY_DAYS) * 100))}%` },
++                ]}
++              />
++            </View>
++            <Text style={styles.buildingText}>
++              {`A week of spending is what it takes to tell an unusual day from an ordinary one. `
++                + `${MINIMUM_HISTORY_DAYS - Math.min(summary.daysOfHistory, MINIMUM_HISTORY_DAYS)} more days to go — `
++                + `or import a bank statement and fill it in at once.`}
++            </Text>
++          </View>
++        )}
+         {/* Two metrics, not four. Projected spend and upcoming payments both
+             now live on the Forecast tab, where they have room to be explained;
+             repeating them here was a large part of what made this screen read
+@@ -55,12 +106,14 @@ export function HomeScreen({ onViewAlerts, onOpenSettings }: { onViewAlerts: ()
+           <MetricCard label="Money left" value={formatCurrency(summary.disposableBalance)} helper={`${formatCurrency(summary.protectedBalance)} after essential bills`} icon="credit-card" accent={colors.safe} />
+           <MetricCard
+             label="How long it may last"
+-            value={formatWhenKnown(summary.hasSpendingHistory, `${summary.runwayDays} days`)}
+-            helper={summary.hasSpendingHistory
++            value={formatWhenKnown(summary.hasEnoughHistory, `${summary.runwayDays} days`)}
++            helper={summary.hasEnoughHistory
+               ? 'Based on your recent optional spending'
+-              : 'Add some spending and I can work this out'}
++              : `Needs ${MINIMUM_HISTORY_DAYS} days of spending`}
+             icon="battery-charging"
+-            accent={healthColor(healthFromRisk(summary.riskScore))}
++            accent={summary.hasEnoughHistory
++              ? healthColor(healthFromRisk(summary.riskScore))
++              : colors.textMuted}
+           />
+         </View>
+         <SectionTitle title="Monthly spending" />
+@@ -103,8 +156,31 @@ const styles = StyleSheet.create({
+     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary,
+     borderRadius: radii.lg, padding: spacing.xl, marginBottom: spacing.lg,
+   },
++  firstRunPressed: { opacity: 0.85, borderColor: colors.high },
+   firstRunTitle: { color: colors.text, fontSize: 17, fontWeight: '900' },
+   firstRunText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: 'center' },
++  firstRunCta: {
++    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm,
++    backgroundColor: colors.primary, borderRadius: radii.pill,
++    paddingVertical: 10, paddingHorizontal: spacing.xl,
++  },
++  firstRunCtaText: { color: colors.black, fontSize: 13, fontWeight: '900' },
++
++  building: {
++    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
++    borderRadius: radii.xl, padding: spacing.xl, gap: spacing.md,
++  },
++  buildingTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
++  buildingEyebrow: { color: colors.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
++  buildingTitle: { color: colors.text, fontSize: 23, fontWeight: '900', marginTop: spacing.xs },
++  buildingCount: {
++    borderWidth: 2, borderColor: colors.border, borderRadius: radii.pill,
++    paddingVertical: 8, paddingHorizontal: spacing.lg,
++  },
++  buildingCountText: { color: colors.textSecondary, fontSize: 15, fontWeight: '900' },
++  buildingTrack: { height: 8, borderRadius: radii.pill, backgroundColor: colors.backgroundRaised, overflow: 'hidden' },
++  buildingFill: { height: '100%', borderRadius: radii.pill, backgroundColor: colors.primary },
++  buildingText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+   settings: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+   dataStatus: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: `${colors.primary}55`, borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 7, marginBottom: spacing.md },
+   dataStatusText: { color: colors.primary, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.5 },
+diff --git a/src/screens/OnboardingScreen.tsx b/src/screens/OnboardingScreen.tsx
+index 3fa71cb..97fd824 100644
+--- a/src/screens/OnboardingScreen.tsx
++++ b/src/screens/OnboardingScreen.tsx
+@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
+ import React, { useState } from 'react';
+ import { ScrollView, StyleSheet, Text, View } from 'react-native';
+ import { FinButton } from '../components/FinButton';
++import { DatePickerField } from '../components/DatePickerField';
+ import { FormField } from '../components/FormField';
+ import { useFinance } from '../context/FinanceContext';
+ import { colors, radii, spacing } from '../theme/colors';
+@@ -72,7 +73,18 @@ export function OnboardingScreen() {
+             <FormField label="Your name" value={name} onChangeText={setName} placeholder="e.g. Thameem" />
+             <FormField label="Monthly income (₹)" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="48000" />
+             <FormField label="Money currently available (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="18500" />
+-            <FormField label="Next income date (YYYY-MM-DD)" value={nextIncomeDate} onChangeText={setNextIncomeDate} placeholder={addDays(today, 14)} />
++            {/* The calendar picker exists and every other date field uses
++                it; this one was still a text box asking for YYYY-MM-DD,
++                which is the format people get wrong. */}
++            <View style={styles.dateField}>
++              <DatePickerField
++                label="When does your next money arrive?"
++                value={nextIncomeDate}
++                onChange={setNextIncomeDate}
++                earliest={today}
++                latest={addDays(today, 400)}
++              />
++            </View>
+             <FormField label="Essential bills each month (₹)" value={essentials} onChangeText={setEssentials} keyboardType="decimal-pad" placeholder="14500" />
+             <FinButton label="Continue" icon="arrow-right" disabled={!canContinue} onPress={submit} />
+             <FinButton label="Back" variant="ghost" onPress={() => setCustom(false)} style={styles.secondaryButton} />
+diff --git a/src/screens/SimulatorScreen.tsx b/src/screens/SimulatorScreen.tsx
+index 7cc856c..64c552d 100644
+--- a/src/screens/SimulatorScreen.tsx
++++ b/src/screens/SimulatorScreen.tsx
+@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
+ import { Pressable, StyleSheet, Text, View } from 'react-native';
+ import { ChoiceChips } from '../components/ChoiceChips';
+ import { FinButton } from '../components/FinButton';
++import { DatePickerField } from '../components/DatePickerField';
+ import { FormField } from '../components/FormField';
+ import { Screen } from '../components/Screen';
+ import { useFinance } from '../context/FinanceContext';
+@@ -71,8 +72,18 @@ export function SimulatorScreen() {
+         ))}</View>
+         <Text style={styles.label}>What type of purchase is it?</Text>
+         <ChoiceChips values={simulatorCategories} selected={category} onSelect={setCategory} />
+-        <View style={styles.dateField}><FormField label="When would you buy it? (YYYY-MM-DD)" value={date} onChangeText={setDate} /></View>
+-        <Text style={styles.dateHelper}>Choose a date from {analysisDate} through {profile.nextIncomeDate}.</Text>
++        {/* Bounded by the calendar rather than by a warning underneath it:
++            you cannot pick a day outside the window, so there is nothing to
++            explain and nothing to get wrong. */}
++        <View style={styles.dateField}>
++          <DatePickerField
++            label="When would you buy it?"
++            value={date}
++            onChange={setDate}
++            earliest={analysisDate}
++            latest={profile.nextIncomeDate || analysisDate}
++          />
++        </View>
+         <FinButton label="Check this purchase" icon="activity" disabled={!canSimulate} onPress={simulate} />
+       </View>
+       {result ? (
+diff --git a/src/screens/TransactionsScreen.tsx b/src/screens/TransactionsScreen.tsx
+index b9bbe2a..cca179d 100644
+--- a/src/screens/TransactionsScreen.tsx
++++ b/src/screens/TransactionsScreen.tsx
+@@ -1,7 +1,7 @@
+ import { Feather } from '@expo/vector-icons';
+ import * as DocumentPicker from 'expo-document-picker';
+ import { File } from 'expo-file-system';
+-import React, { useMemo, useState } from 'react';
++import React, { useEffect, useMemo, useState } from 'react';
+ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+ import { ChoiceChips } from '../components/ChoiceChips';
+ import { FinButton } from '../components/FinButton';
+@@ -21,7 +21,11 @@ import { isValidIsoDate, parsePositiveMoney } from '../utils/validation';
+ 
+ type CategoryFilter = 'all' | TransactionCategory;
+ 
+-export function TransactionsScreen() {
++export function TransactionsScreen({ openAddOnMount = false, onAddOpened }: {
++  /** True when Home sent the person here to add something. */
++  openAddOnMount?: boolean;
++  onAddOpened?: () => void;
++} = {}) {
+   const { transactions, profile, addTransaction, deleteTransaction, importTransactions, setTransactionCategory } = useFinance();
+   const keyboard = useKeyboardHeight();
+   const [search, setSearch] = useState('');
+@@ -30,6 +34,19 @@ export function TransactionsScreen() {
+   const [scheduledVisible, setScheduledVisible] = useState(false);
+   /** The payment whose category is being corrected. */
+   const [editing, setEditing] = useState<Transaction | null>(null);
++
++  /**
++   * Open the add sheet straight away when Home sent us here.
++   *
++   * The Home empty state used to be a card that read "go to the Spending
++   * tab" — a dead end with instructions on it. It is a button now, and this
++   * is the other half: arriving already on the form, not one tap short of it.
++   */
++  useEffect(() => {
++    if (!openAddOnMount) return;
++    setAddVisible(true);
++    onAddOpened?.();
++  }, [openAddOnMount, onAddOpened]);
+   const [merchant, setMerchant] = useState('');
+   const [amount, setAmount] = useState('');
+   const [date, setDate] = useState(profile.analysisDate ?? toIsoDate(new Date()));
+diff --git a/src/types/finance.ts b/src/types/finance.ts
+index 62e14d4..3827d2a 100644
+--- a/src/types/finance.ts
++++ b/src/types/finance.ts
+@@ -83,6 +83,21 @@ export interface FinancialSummary {
+    * showed the first to someone with ₹15,000 in the bank.
+    */
+   hasSpendingHistory: boolean;
++  /**
++   * How many days the recorded spending covers, from the earliest entry to
++   * today. One payment entered today is 1, not 0.
++   */
++  daysOfHistory: number;
++  /**
++   * Whether there is enough history for a score to mean anything.
++   *
++   * ₹2,000 of pocket money with ₹1,500 spent should not read as perfect
++   * health, and with one day on file that is exactly what came out: every
++   * detector compares this week against a normal it has never seen, finds
++   * nothing, and reports nothing wrong. Absence of evidence was being shown
++   * as evidence of absence.
++   */
++  hasEnoughHistory: boolean;
+   riskScore: number;
+   riskBand: RiskBand;
+   riskExplanation: string;
+diff --git a/tests/run-tests.ts b/tests/run-tests.ts
+index d517608..afcb8a8 100644
+--- a/tests/run-tests.ts
++++ b/tests/run-tests.ts
+@@ -217,6 +217,39 @@ const sanitized = sanitizePersistedState({
+ assert(sanitized?.transactions.length === 1, 'stored malformed transaction rows are discarded safely');
+ assert(sanitizePersistedState({ broken: true }) === null, 'unrecoverable saved state is rejected');
+ 
++/* ---- A week of evidence before any number is put on screen ---- */
++
++// The bug: ₹2,000 of pocket money, ₹1,500 already spent, one day on file —
++// and the app reported perfect health, because every detector compares
++// against a normal it had never seen, found nothing, and said nothing was
++// wrong. Absence of evidence shown as evidence of absence.
++const oneDayDataset: FinanceDataset = {
++  profile: { ...demoDataset.profile, analysisDate: '2026-08-30', availableBalance: 500, monthlyIncome: 2000 },
++  transactions: [{
++    id: 'today-1', date: '2026-08-30', merchant: 'Canteen', amount: 100,
++    direction: 'debit', category: 'food', essential: false, source: 'manual',
++  }],
++  recurringPayments: [],
++};
++const oneDay = calculateFinancialSummary(oneDayDataset);
++assert(oneDay.daysOfHistory === 1, 'a payment entered today counts as one day of history, not zero');
++assert(!oneDay.hasEnoughHistory, 'one day is not enough to score anybody');
++
++// A single backdated payment spans a week but proves nothing, so the entry
++// count has to hold the line on its own.
++const thinWeek = calculateFinancialSummary({
++  ...oneDayDataset,
++  transactions: [{
++    id: 'old-1', date: '2026-08-01', merchant: 'Canteen', amount: 100,
++    direction: 'debit', category: 'food', essential: false, source: 'manual',
++  }],
++});
++assert(thinWeek.daysOfHistory >= 7, 'a backdated payment does span a week');
++assert(!thinWeek.hasEnoughHistory, 'one payment a month ago is still not a week of evidence');
++
++assert(summary.hasEnoughHistory, 'the sample account has plenty of history and is scored normally');
++assert(summary.daysOfHistory >= 7, 'the sample account spans at least a week');
++
+ /* ---- Money health: the same finding, said the way round people read it ---- */
+ 
+ assert(healthFromRisk(0) === 100, 'no risk shows as full health');
+-- 
+2.43.0
+
