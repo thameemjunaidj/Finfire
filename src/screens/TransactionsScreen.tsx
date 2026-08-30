@@ -5,13 +5,16 @@ import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ChoiceChips } from '../components/ChoiceChips';
 import { FinButton } from '../components/FinButton';
+import { ImportReviewModal, PendingImport } from '../components/ImportReviewModal';
 import { DatePickerField } from '../components/DatePickerField';
 import { FormField } from '../components/FormField';
 import { RecurringPaymentsModal } from '../components/RecurringPaymentsModal';
 import { Screen } from '../components/Screen';
 import { TransactionRow } from '../components/TransactionRow';
 import { useFinance } from '../context/FinanceContext';
-import { parseTransactionsCsv } from '../services/csv';
+import { categoriseBatch, trainCategoryModel } from '../engine/categoriser';
+import { parseMessageBatch, toTransaction } from '../engine/smsParser';
+import { readStatement } from '../services/statementParser';
 import { colors, radii, spacing } from '../theme/colors';
 import { Transaction, TransactionCategory, TransactionDirection, TRANSACTION_CATEGORIES } from '../types/finance';
 import { confirmAction, showMessage } from '../utils/alerts';
@@ -26,6 +29,9 @@ export function TransactionsScreen() {
   const [filter, setFilter] = useState<CategoryFilter>('all');
   const [addVisible, setAddVisible] = useState(false);
   const [scheduledVisible, setScheduledVisible] = useState(false);
+  const [messageVisible, setMessageVisible] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   /** The payment whose category is being corrected. */
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [merchant, setMerchant] = useState('');
@@ -44,7 +50,19 @@ export function TransactionsScreen() {
     setAddVisible(true);
   };
 
-  const importCsv = async () => {
+  const prepareImport = (items: Transaction[]): Transaction[] => {
+    const guesses = categoriseBatch(trainCategoryModel(transactions), items.map((item) => item.merchant));
+    return items.map((item, index) => {
+      const nextCategory = item.direction === 'credit' ? 'income' : guesses[index].category;
+      return {
+        ...item,
+        category: nextCategory,
+        essential: item.direction === 'debit' && ['rent', 'utilities', 'health'].includes(nextCategory),
+      };
+    });
+  };
+
+  const importStatement = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['text/csv', 'text/comma-separated-values', 'text/plain'],
@@ -58,21 +76,65 @@ export function TransactionsScreen() {
       const content = result.assets[0].file
         ? await result.assets[0].file.text()
         : await new File(result.assets[0].uri).text();
-      const parsed = parseTransactionsCsv(content);
+      const parsed = readStatement(content);
       if (!parsed.transactions.length) {
-        showMessage('Nothing was added', parsed.errors.join('\n') || 'We could not find any usable spending entries.');
+        showMessage('Nothing to review', parsed.problems.join('\n') || 'We could not find any spending entries in this file.');
         return;
       }
-      const imported = importTransactions(parsed.transactions);
-      const details = [
-        `${imported.added} entr${imported.added === 1 ? 'y' : 'ies'} added`,
-        imported.skippedDuplicates ? `${imported.skippedDuplicates} duplicate${imported.skippedDuplicates === 1 ? '' : 's'} skipped` : '',
-        parsed.errors.length ? `${parsed.errors.length} invalid row${parsed.errors.length === 1 ? '' : 's'} skipped` : '',
-      ].filter(Boolean).join(' · ');
-      showMessage(imported.added ? 'Spending added' : 'Already added', details);
+      setPendingImport({
+        title: 'Review your bank statement',
+        transactions: prepareImport(parsed.transactions),
+        mapping: parsed.mapping,
+        problems: parsed.problems,
+        rowsRead: parsed.rowsRead,
+      });
     } catch {
-      showMessage('Could not read this file', 'Use a CSV file with date, merchant and amount columns. Direction, category and essential are optional.');
+      showMessage('Could not read this file', 'Export a CSV or text statement from your bank and try again. The file stays on this device.');
     }
+  };
+
+  const reviewMessages = () => {
+    const parsed = parseMessageBatch(messageText, profile.analysisDate ?? toIsoDate(new Date()));
+    if (!parsed.length) {
+      showMessage('No payments found', 'Paste one bank payment message per line. OTP and balance messages are ignored.');
+      return;
+    }
+    const model = trainCategoryModel(transactions);
+    const guesses = categoriseBatch(model, parsed.map((item) => item.merchant));
+    const items = parsed.map((item, index) => toTransaction(
+      item,
+      item.direction === 'credit' ? 'income' : guesses[index].category,
+      index,
+    ));
+    setMessageVisible(false);
+    setPendingImport({
+      title: 'Review pasted bank messages',
+      transactions: items,
+      problems: [],
+    });
+  };
+
+  const changePendingCategory = (id: string, nextCategory: TransactionCategory) => {
+    setPendingImport((current) => current ? {
+      ...current,
+      transactions: current.transactions.map((item) => item.id === id ? {
+        ...item,
+        category: nextCategory,
+        essential: item.direction === 'debit' && ['rent', 'utilities', 'health'].includes(nextCategory),
+      } : item),
+    } : null);
+  };
+
+  const confirmImport = () => {
+    if (!pendingImport) return;
+    const imported = importTransactions(pendingImport.transactions);
+    setPendingImport(null);
+    setMessageText('');
+    const details = [
+      `${imported.added} entr${imported.added === 1 ? 'y' : 'ies'} added`,
+      imported.skippedDuplicates ? `${imported.skippedDuplicates} duplicate${imported.skippedDuplicates === 1 ? '' : 's'} skipped` : '',
+    ].filter(Boolean).join(' · ');
+    showMessage(imported.added ? 'Spending added' : 'Already added', details);
   };
 
   const save = () => {
@@ -123,7 +185,8 @@ export function TransactionsScreen() {
       <Screen title="Spending" subtitle={`${transactions.length} entries saved on this device`}>
         <View style={styles.actions}>
           <FinButton label="Add money" icon="plus" onPress={openAdd} style={styles.actionButton} />
-          <FinButton label="Import file" icon="upload" variant="secondary" onPress={() => void importCsv()} style={styles.actionButton} />
+          <FinButton label="Import statement" icon="upload" variant="secondary" onPress={() => void importStatement()} style={styles.actionButton} />
+          <FinButton label="Paste bank message" icon="message-square" variant="secondary" onPress={() => setMessageVisible(true)} style={styles.actionButton} />
           <FinButton label="Upcoming bills" icon="calendar" variant="secondary" onPress={() => setScheduledVisible(true)} style={styles.actionButton} />
         </View>
         <View style={styles.search}>
@@ -143,7 +206,7 @@ export function TransactionsScreen() {
             </Pressable>
           ) : null}
         </View>
-        <ChoiceChips values={['all', ...TRANSACTION_CATEGORIES]} selected={filter} onSelect={setFilter} style={styles.filters} />
+        <ChoiceChips<CategoryFilter> values={['all', ...TRANSACTION_CATEGORIES]} selected={filter} onSelect={setFilter} style={styles.filters} />
         <View style={styles.listCard}>
           {filtered.slice(0, 120).map((item) => (
             <TransactionRow
@@ -161,7 +224,7 @@ export function TransactionsScreen() {
         </View>
         <View style={styles.csvHelp}>
           <Feather name="info" size={16} color={colors.primary} />
-          <Text style={styles.csvText}>Import a bank CSV with date, merchant and amount columns. Repeated entries are skipped. Importing does not change the balance you entered.</Text>
+          <Text style={styles.csvText}>Import a bank CSV or paste payment messages. FinFire shows every entry before saving, guesses the category from your history, and skips repeats. Your files and messages stay on this device.</Text>
         </View>
       </Screen>
 
@@ -183,7 +246,7 @@ export function TransactionsScreen() {
               <FormField label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="500" />
               <DatePickerField label="When was this?" value={date} onChange={setDate} latest={profile.analysisDate ?? toIsoDate(new Date())} />
               <Text style={styles.fieldLabel}>What is it for?</Text>
-              <ChoiceChips
+              <ChoiceChips<TransactionCategory>
                 values={direction === 'credit' ? ['income', 'other'] : TRANSACTION_CATEGORIES.filter((value) => value !== 'income')}
                 selected={category}
                 onSelect={setCategory}
@@ -191,7 +254,7 @@ export function TransactionsScreen() {
               {direction === 'debit' ? (
                 <>
                   <Text style={[styles.fieldLabel, styles.spacedLabel]}>Is this essential?</Text>
-                  <ChoiceChips values={['flexible', 'essential']} selected={essential} onSelect={setEssential} />
+                  <ChoiceChips<'flexible' | 'essential'> values={['flexible', 'essential']} selected={essential} onSelect={setEssential} />
                 </>
               ) : null}
               <View style={styles.balanceNote}>
@@ -199,6 +262,38 @@ export function TransactionsScreen() {
                 <Text style={styles.balanceNoteText}>Saving changes your balance. If you remove this later, the balance changes back.</Text>
               </View>
               <FinButton label="Save" icon="check" onPress={save} style={styles.saveButton} />
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={messageVisible} transparent animationType="slide" onRequestClose={() => setMessageVisible(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setMessageVisible(false)}>
+          <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Paste bank messages</Text>
+              <Pressable accessibilityLabel="Close bank message form" onPress={() => setMessageVisible(false)}>
+                <Feather name="x" size={22} color={colors.text} />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
+              <Text style={styles.messageHelp}>Copy payment messages from your SMS app and paste them below, one per line. FinFire cannot read your messages automatically.</Text>
+              <TextInput
+                accessibilityLabel="Bank payment messages"
+                value={messageText}
+                onChangeText={setMessageText}
+                multiline
+                textAlignVertical="top"
+                placeholder="Example: Rs 240 debited from A/c XX1234 to Swiggy on 21-08-2026"
+                placeholderTextColor={colors.textMuted}
+                selectionColor={colors.primary}
+                style={styles.messageInput}
+              />
+              <View style={styles.balanceNote}>
+                <Feather name="shield" size={15} color={colors.primary} />
+                <Text style={styles.balanceNoteText}>The text is read on your phone. OTP and balance-only messages are ignored.</Text>
+              </View>
+              <FinButton label="Review found payments" icon="search" onPress={reviewMessages} disabled={!messageText.trim()} style={styles.saveButton} />
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -257,6 +352,13 @@ export function TransactionsScreen() {
       </Modal>
 
       <RecurringPaymentsModal visible={scheduledVisible} onClose={() => setScheduledVisible(false)} />
+      <ImportReviewModal
+        pending={pendingImport}
+        history={transactions}
+        onChangeCategory={changePendingCategory}
+        onCancel={() => setPendingImport(null)}
+        onConfirm={confirmImport}
+      />
     </>
   );
 }
@@ -272,6 +374,8 @@ const styles = StyleSheet.create({
   limit: { color: colors.textMuted, padding: spacing.md, textAlign: 'center', fontSize: 10 },
   csvHelp: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', marginTop: spacing.md, paddingHorizontal: spacing.sm },
   csvText: { color: colors.textMuted, fontSize: 10, lineHeight: 15, flex: 1 },
+  messageHelp: { color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginBottom: spacing.md },
+  messageInput: { minHeight: 180, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.backgroundRaised, color: colors.text, padding: spacing.md, fontSize: 13, lineHeight: 19 },
   backdrop: { flex: 1, backgroundColor: '#000000A6', justifyContent: 'flex-end', alignItems: 'center' },
   sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, borderColor: colors.border },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.xl, paddingBottom: spacing.md },

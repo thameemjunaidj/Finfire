@@ -67,7 +67,7 @@ export function SimulatorScreen() {
           </Pressable>
         ))}</View>
         <Text style={styles.label}>What type of purchase is it?</Text>
-        <ChoiceChips values={simulatorCategories} selected={category} onSelect={setCategory} />
+        <ChoiceChips<TransactionCategory> values={simulatorCategories} selected={category} onSelect={setCategory} />
         <View style={styles.dateField}><FormField label="When would you buy it? (YYYY-MM-DD)" value={date} onChangeText={setDate} /></View>
         <Text style={styles.dateHelper}>Choose a date from {analysisDate} through {profile.nextIncomeDate}.</Text>
         <FinButton label="Check this purchase" icon="activity" disabled={!canSimulate} onPress={simulate} />

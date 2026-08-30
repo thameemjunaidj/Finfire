@@ -67,10 +67,17 @@ export function appendImportedTransactions(
   incoming: Transaction[],
 ): { state: PersistedFinanceState; summary: TransactionImportSummary } {
   const existingIds = new Set(state.transactions.map((item) => item.id));
+  const fingerprint = (item: Transaction) => [
+    item.date,
+    item.direction,
+    Math.round(item.amount * 100),
+    item.merchant.toLowerCase().replace(/[^a-z0-9]/g, ''),
+  ].join('|');
+  const existingFingerprints = new Set(state.transactions.map(fingerprint));
   const accepted: Transaction[] = [];
   let skippedDuplicates = 0;
   incoming.forEach((transaction) => {
-    if (existingIds.has(transaction.id)) {
+    if (existingIds.has(transaction.id) || existingFingerprints.has(fingerprint(transaction))) {
       skippedDuplicates += 1;
       return;
     }

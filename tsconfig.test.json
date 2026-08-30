@@ -15,6 +15,7 @@
     "src/engine/**/*.ts",
     "src/services/csv.ts",
     "src/services/financeState.ts",
+    "src/services/statementParser.ts",
     "tests/**/*.ts"
   ]
 }

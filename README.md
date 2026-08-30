@@ -1,8 +1,8 @@
-# Fin Extinguisher
+# FinFire
 
 **Put out money problems before they start.**
 
-Fin Extinguisher is an offline-first financial early-warning app built for DevJams. Instead of only showing where money went, it detects what may go wrong next, explains the evidence, forecasts where the month is heading, and recommends concrete actions.
+FinFire is a financial early-warning app built for DevJams. Instead of only showing where money went, it detects what may go wrong next, explains the evidence, forecasts where the month is heading, and recommends concrete actions.
 
 ## What works
 
@@ -20,7 +20,11 @@ Fin Extinguisher is an offline-first financial early-warning app built for DevJa
 - Searchable and filterable transaction history
 - Manual income and expense entry with reversible balance updates
 - Removable manual/imported rows (demo evidence stays protected)
-- Duplicate-safe CSV transaction import on Android, iOS, and web
+- Bank-statement import that recognises common date, description, debit, and credit column names
+- Paste-to-import for bank payment messages on Android, iOS, and web
+- A review screen before saving, with category correction and unusual-payment checks
+- Categories learned from the person's previous corrections
+- Duplicate-safe imports even when the same payment arrives through a different import path
 - Scheduled-payment manager for custom bills, EMIs, and subscriptions
 - ₹1,000–₹10,000 what-if purchase simulator
 - Before/after risk, runway, and projected-spending comparison
@@ -39,7 +43,7 @@ In **What If?**, a hypothetical ₹5,000 purchase reduces runway to approximatel
 - React Native + Expo SDK 54
 - TypeScript with strict mode
 - AsyncStorage for local persistence
-- Expo Document Picker + File System for CSV import
+- Expo Document Picker + File System for private on-device statement import
 - Expo Notifications for local device warnings
 - React Native Web for laptop/browser development
 
@@ -73,18 +77,22 @@ npm run verify
 npx expo-doctor
 ```
 
-`npm run verify` type-checks the application, runs deterministic engine/state/CSV tests, and creates production bundles for Android, iOS, and web. The same command runs automatically in `.github/workflows/verify.yml`.
+`npm run verify` type-checks the application, runs deterministic engine/state/import tests, and creates production bundles for Android, iOS, and web. The same command runs automatically in `.github/workflows/verify.yml`.
 
-## CSV format
+## Bringing in spending
 
-Fin Extinguisher accepts a header row and these columns:
+The simple sample format still works:
 
 ```csv
 date,merchant,amount,direction,category,essential
 2026-08-18,"Cafe, Vellore",350,debit,food,no
 ```
 
-Required columns are `date`, `merchant`, and `amount`. Dates use a real `YYYY-MM-DD` calendar date. Optional direction accepts `debit`, `credit`, `dr`, or `cr`; common category names such as `salary`, `groceries`, and `medical` are normalized. Unknown categories become `other`, invalid rows are reported, files are capped at 5,000 rows, and importing the same file again skips stable duplicate IDs. Importing never changes the available balance.
+FinFire also recognises common bank headings such as `Transaction Date`, `Narration`, `Withdrawal Amt.`, `Deposit Amt.`, `Debit`, `Credit`, and `Dr/Cr`. It can find a header below account-detail lines and read comma-, tab-, semicolon-, or pipe-separated statements. The review screen shows how the columns were understood before anything is saved.
+
+People can also copy payment messages from their SMS app and paste one message per line. OTP and balance-only messages are ignored. FinFire does not claim to read SMS automatically: iOS does not permit that, and Expo Go cannot do it on Android. Both statement and message text are parsed on the device.
+
+During review, categories are suggested from past spending. The person can correct each one, see payments that look unusual, cancel the whole import, or confirm it. Repeated payments are skipped, and imported evidence does not change the manually entered current balance.
 
 A ready-to-import example is available at [`samples/transactions.csv`](samples/transactions.csv).
 
@@ -97,7 +105,7 @@ src/
 ├── data/            Internally consistent demonstration dataset
 ├── engine/          Five detectors, risk score, forecast, and simulator
 ├── screens/         Onboarding, Home, Forecast, Alerts, Transactions, What If
-├── services/        CSV, notifications, and storage
+├── services/        Statements, account services, notifications, and storage
 ├── theme/           Shared brand identity and design tokens
 ├── types/           Shared financial data contracts
 └── utils/           Date and display formatting
@@ -135,7 +143,7 @@ Bands: `0–29 Safe`, `30–59 Caution`, `60–79 High Risk`, and `80–100 Crit
 
 - A manually added debit lowers the available balance; a credit raises it.
 - Removing a manual row reverses its exact balance change, including an overdraft.
-- CSV rows are evidence imports and therefore do not change the entered current balance.
+- Imported rows are evidence and therefore do not change the entered current balance.
 - Scheduled payments feed the payment-pressure, subscription-change, and protected-runway calculations.
 - Editing the profile or scheduled payments recalculates every detector immediately.
 - A simulation uses a temporary copy of the dataset and never changes saved state.
@@ -143,7 +151,7 @@ Bands: `0–29 Safe`, `30–59 Caution`, `60–79 High Risk`, and `80–100 Crit
 ## Reliability safeguards
 
 - Strict TypeScript covers the full application.
-- Deterministic tests cover all five planted alerts, safe/zero-balance edge cases, future-date simulation, calendar validation, CSV aliases and duplicates, state restoration, and corrupted-storage recovery.
+- Deterministic tests cover all five planted alerts, safe/zero-balance edge cases, future-date simulation, statement formats, pasted bank messages, category learning, unusual-payment review, duplicates, state restoration, and corrupted-storage recovery.
 - Invalid persisted rows are filtered instead of crashing startup.
 - Browser alerts and confirmations use real web dialogs; native builds use React Native dialogs.
 - The old parallel prototype engine was removed after the active implementation was verified, so there is now one source of truth under `src/engine/`.
@@ -151,8 +159,8 @@ Bands: `0–29 Safe`, `30–59 Caution`, `60–79 High Risk`, and `80–100 Crit
 ## Privacy and responsible claims
 
 - The prototype uses demonstration, manually entered, or user-imported data.
-- Data is stored locally and is not sent to a Fin Extinguisher server.
-- Fin Extinguisher never asks for net-banking passwords, card PINs, CVVs, or UPI PINs.
+- Statement files and pasted bank messages are read on the device and are not sent away for parsing.
+- FinFire never asks for net-banking passwords, card PINs, CVVs, or UPI PINs.
 - It does not connect to a real bank or initiate payments.
 - Warnings are informational and are not regulated financial advice.
 
