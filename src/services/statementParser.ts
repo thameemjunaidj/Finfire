@@ -223,12 +223,13 @@ function tidyDescription(raw: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 
-  const noise = /^(upi|imps|neft|rtgs|pos|atm|ach|mmt|ref|txn|by|to|from|no|nos|d|dr|cr|inr)$/i;
+  const noise = /^(upi|imps|neft|rtgs|pos|atm|ach|mmt|ref\d*|txn\d*|by|to|from|no|nos|d|dr|cr|inr)$/i;
   const words = cleaned
     .split(' ')
     .filter((word) => word.length > 1)
     .filter((word) => !noise.test(word))
     .filter((word) => !/^\d+$/.test(word))      // reference numbers
+    .filter((word, index, all) => index === 0 || word.toLowerCase() !== all[index - 1].toLowerCase())
     .slice(0, 3);
   if (!words.length) return raw.slice(0, 24).trim() || 'Unknown';
   return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');

@@ -186,8 +186,15 @@ export function toTransaction(
   category: TransactionCategory,
   index = 0,
 ): Transaction {
+  // The same message gets the same id every time it is pasted. This lets the
+  // import layer recognise a repeat without storing the private raw message.
+  let fingerprint = 2166136261;
+  for (let position = 0; position < parsed.raw.length; position += 1) {
+    fingerprint ^= parsed.raw.charCodeAt(position);
+    fingerprint = Math.imul(fingerprint, 16777619);
+  }
   return {
-    id: `sms-${Date.now()}-${index}`,
+    id: `sms-${(fingerprint >>> 0).toString(36)}-${index}`,
     date: parsed.date,
     merchant: parsed.merchant,
     amount: parsed.amount,

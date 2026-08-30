@@ -119,9 +119,9 @@ export function RecurringPaymentsModal({ visible, onClose }: { visible: boolean;
                 <FormField label="Previous amount (₹, optional)" value={previousAmount} onChangeText={setPreviousAmount} keyboardType="decimal-pad" placeholder="649" />
                 <FormField label="Next payment date (YYYY-MM-DD)" value={date} onChangeText={setDate} placeholder="2026-09-01" />
                 <Text style={styles.label}>What is it for?</Text>
-                <ChoiceChips values={paymentCategories} selected={category} onSelect={setCategory} />
+                <ChoiceChips<TransactionCategory> values={paymentCategories} selected={category} onSelect={setCategory} />
                 <Text style={[styles.label, styles.spacedLabel]}>Is this essential?</Text>
-                <ChoiceChips values={['flexible', 'essential']} selected={spendingType} onSelect={setSpendingType} />
+                <ChoiceChips<'flexible' | 'essential'> values={['flexible', 'essential']} selected={spendingType} onSelect={setSpendingType} />
                 <FinButton label="Save bill" icon="check" onPress={save} style={styles.save} />
                 <FinButton label="Cancel" variant="ghost" onPress={() => setAdding(false)} style={styles.cancel} />
               </View>

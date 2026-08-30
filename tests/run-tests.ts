@@ -1,9 +1,13 @@
 import { demoDataset } from '../src/data/demoData';
 import { calculateFinancialSummary, getRiskBand, simulatePurchase } from '../src/engine/financeEngine';
 import { buildForecast } from '../src/engine/forecastEngine';
+import { categorise, trainCategoryModel } from '../src/engine/categoriser';
 import { predictOutcome } from '../src/engine/predictionEngine';
+import { reviewBatch } from '../src/engine/reviewEngine';
+import { parseBankMessage, parseMessageBatch, toTransaction } from '../src/engine/smsParser';
 import { explainOnDevice } from '../src/services/ai';
 import { parseTransactionsCsv } from '../src/services/csv';
+import { readStatement } from '../src/services/statementParser';
 import {
   addTransactionToState,
   addRecurringPaymentToState,
@@ -36,7 +40,7 @@ assert(types.has('low_runway'), 'detects a low money runway');
 assert(summary.riskScore >= 0 && summary.riskScore <= 100, 'clamps risk score to 0–100');
 assert(summary.upcomingPaymentsCount === 3, 'counts three upcoming payments');
 approximately(summary.upcomingPaymentsTotal, 657, 0, 'upcoming total');
-approximately(summary.runwayDays, 7, 0, 'demo runway');
+approximately(summary.runwayDays, 9, 0, 'demo runway');
 
 // The electricity bill is due on the 27th, so it is not a transaction yet.
 // This asserts the app warns BEFORE the charge lands, which is the whole point.
@@ -210,6 +214,52 @@ assert(firstImport.summary.added === 1, 'first CSV import adds a row');
 assert(repeatedImport.summary.added === 0 && repeatedImport.summary.skippedDuplicates === 1, 'repeated CSV import is duplicate-safe');
 assert(repeatedImport.state.profile.availableBalance === baseState.profile.availableBalance, 'CSV import does not alter the available balance');
 
+/* --- Connected statement and bank-message imports ---------------- */
+
+const bankStatement = [
+  'Account Name,Student Account',
+  'Statement Period,August 2026',
+  'Transaction Date,Narration,Withdrawal Amt.,Deposit Amt.',
+  '21/08/2026,UPI-SWIGGY-swiggy@ybl-REF402944,"1,240.00",',
+  '22-Aug-26,Scholarship Credit,,5000.00',
+].join('\n');
+const statement = readStatement(bankStatement);
+assert(statement.transactions.length === 2, 'reads a real bank-style statement with preamble and split debit/credit columns');
+assert(statement.transactions[0].merchant === 'Swiggy', 'cleans a machine narration into a readable merchant');
+assert(statement.transactions[0].direction === 'debit' && statement.transactions[1].direction === 'credit', 'keeps money out and money in separate');
+assert(statement.mapping.Narration === 'who it was paid to', 'shows the user how statement columns were understood');
+
+const categoryModel = trainCategoryModel(demoDataset.transactions);
+const swiggyGuess = categorise(categoryModel, 'Swiggy');
+assert(swiggyGuess.category === 'food' && swiggyGuess.confidence >= 0.6, 'uses spending history to categorise imported merchants');
+
+const bankMessage = 'Rs 240 debited from A/c XX1234 to Swiggy on 21-08-2026';
+const parsedMessage = parseBankMessage(bankMessage, '2026-08-30');
+assert(parsedMessage?.merchant === 'Swiggy' && parsedMessage.amount === 240, 'reads a pasted bank payment message');
+assert(parseBankMessage('Your OTP is 123456. Do not share it. Rs 5000', '2026-08-30') === null, 'never imports an OTP as spending');
+assert(parseMessageBatch(`${bankMessage}\nRs 600 credited to A/c XX1234 from Scholarship on 22-08-2026`).length === 2, 'reads several pasted messages');
+const smsTransaction = toTransaction(parsedMessage!, 'food');
+assert(smsTransaction.id === toTransaction(parsedMessage!, 'food').id, 'a pasted message has a stable duplicate-safe id');
+
+const differentIdSamePayment = { ...smsTransaction, id: 'another-import-id' };
+const fingerprintRepeat = appendImportedTransactions(
+  { ...baseState, transactions: [smsTransaction] },
+  [differentIdSamePayment],
+);
+assert(fingerprintRepeat.summary.skippedDuplicates === 1, 'recognises the same payment even when its import id changes');
+
+const unusual = reviewBatch(demoDataset.transactions, [{
+  id: 'review-new-place',
+  date: '2026-08-21',
+  merchant: 'New Electronics Store',
+  amount: 4500,
+  direction: 'debit',
+  category: 'shopping',
+  essential: false,
+  source: 'csv',
+}]);
+assert(unusual.items.some((item) => item.flag === 'new_merchant'), 'shows unusual imported spending before it is saved');
+
 const sanitized = sanitizePersistedState({
   ...baseState,
   transactions: [importedTransaction, { ...importedTransaction, id: 'bad', category: 'unknown' }],
@@ -223,4 +273,4 @@ assert(parsePositiveMoney('₹1,250.50') === 1250.5, 'parses formatted positive 
 assert(parsePositiveMoney('0') === null, 'rejects a zero positive-money input');
 assert(parseNonNegativeMoney('0') === 0, 'accepts zero for non-negative money');
 
-console.log(`Fin Extinguisher tests passed: ${summary.alerts.length} alerts, risk ${summary.riskScore}/100, runway ${summary.runwayDays} days, ${Math.round(prediction.shortfallProbability * 100)}% shortfall risk.`);
+console.log(`FinFire tests passed: ${summary.alerts.length} alerts, risk ${summary.riskScore}/100, runway ${summary.runwayDays} days, ${Math.round(prediction.shortfallProbability * 100)}% shortfall risk.`);
