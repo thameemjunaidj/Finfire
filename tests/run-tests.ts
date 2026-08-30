@@ -262,9 +262,16 @@ assert(unusual.items.some((item) => item.flag === 'new_merchant'), 'shows unusua
 
 const sanitized = sanitizePersistedState({
   ...baseState,
+  signedInAs: 'student@example.com',
+  sessionToken: 'session-test-token',
+  emailVerified: true,
+  dismissedAlertIds: ['warning-one', 42],
   transactions: [importedTransaction, { ...importedTransaction, id: 'bad', category: 'unknown' }],
 });
 assert(sanitized?.transactions.length === 1, 'stored malformed transaction rows are discarded safely');
+assert(sanitized?.signedInAs === 'student@example.com' && sanitized.sessionToken === 'session-test-token', 'a saved sign-in survives app restart');
+assert(sanitized?.emailVerified === true, 'email confirmation survives app restart');
+assert(sanitized?.dismissedAlertIds?.length === 1, 'keeps valid dismissed warning ids and drops malformed ones');
 assert(sanitizePersistedState({ broken: true }) === null, 'unrecoverable saved state is rejected');
 
 assert(isValidIsoDate('2026-08-29'), 'accepts a real ISO date');

@@ -97,6 +97,20 @@ export async function signOutOfAccount(token: string): Promise<void> {
   await call('/auth/signout', { token });
 }
 
+/**
+ * Ask whether the address attached to this session has been confirmed.
+ *
+ * The email link opens in a browser, so the app cannot learn about the change
+ * from that page directly. It checks this small endpoint when it becomes
+ * active again instead. No password or email address is sent.
+ */
+export async function refreshVerification(token: string): Promise<{ verified: boolean; error?: string }> {
+  const result = await call('/auth/status', { token });
+  if (!result) return { verified: false, error: 'Could not check confirmation just now.' };
+  if (result.error) return { verified: false, error: String(result.error) };
+  return { verified: result.verified === true };
+}
+
 
 /** Ask for another confirmation link. */
 export async function resendVerification(token: string): Promise<{ sent: boolean; error?: string }> {

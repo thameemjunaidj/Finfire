@@ -1,4 +1,5 @@
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 import { demoDataset } from '../data/demoData';
 import { calculateFinancialSummary, simulatePurchase } from '../engine/financeEngine';
 import { buildForecast } from '../engine/forecastEngine';
@@ -6,6 +7,7 @@ import { mergeRecurringPayments } from '../engine/recurringDetection';
 import { predictOutcome } from '../engine/predictionEngine';
 import { trainModel } from '../engine/learningEngine';
 import { explainOnDevice } from '../services/ai';
+import { refreshVerification } from '../services/auth';
 import { clearFinanceState, loadFinanceState, saveFinanceState } from '../services/storage';
 import {
   addTransactionToState,
@@ -114,6 +116,34 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     if (loaded) void saveFinanceState(state);
   }, [state, loaded]);
 
+  useEffect(() => {
+    if (!loaded || !state.sessionToken || state.emailVerified) return undefined;
+
+    let mounted = true;
+    let checking = false;
+    const checkNow = async () => {
+      if (checking || !state.sessionToken) return;
+      checking = true;
+      const result = await refreshVerification(state.sessionToken);
+      checking = false;
+      if (mounted && result.verified) {
+        setState((current) => ({ ...current, emailVerified: true }));
+      }
+    };
+
+    void checkNow();
+    const appState = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void checkNow();
+    });
+    const timer = setInterval(() => { void checkNow(); }, 15000);
+
+    return () => {
+      mounted = false;
+      appState.remove();
+      clearInterval(timer);
+    };
+  }, [loaded, state.emailVerified, state.sessionToken]);
+
   const dataset = useMemo<FinanceDataset>(() => ({
     profile: state.profile,
     transactions: state.transactions,
@@ -173,7 +203,14 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     emailVerified: state.emailVerified,
     onboardingComplete: state.onboardingComplete,
     notificationsEnabled: state.notificationsEnabled,
-    useDemoAccount: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: true, signedInAs: current.signedInAs })),
+    useDemoAccount: () => setState((current) => ({
+      ...demoDataset,
+      onboardingComplete: true,
+      notificationsEnabled: true,
+      signedInAs: current.signedInAs,
+      sessionToken: current.sessionToken,
+      emailVerified: current.emailVerified,
+    })),
     completeCustomSetup: (profile) => setState((current) => ({
       profile,
       transactions: [],
@@ -181,7 +218,9 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       onboardingComplete: true,
       notificationsEnabled: true,
       // Resetting the account must not sign anyone out.
-      signedInAs: current.signedInAs, sessionToken: current.sessionToken,
+      signedInAs: current.signedInAs,
+      sessionToken: current.sessionToken,
+      emailVerified: current.emailVerified,
     })),
     addTransaction: (transaction) => setState((current) => addTransactionToState(current, createManualTransaction(transaction))),
     deleteTransaction: (id) => setState((current) => removeTransactionFromState(current, id)),
@@ -205,7 +244,12 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     snapshot: () => state,
     // Keep whoever is signed in — a restore should not log them out of the
     // account they just restored from.
-    restoreState: (restored) => setState({ ...restored, signedInAs: state.signedInAs }),
+    restoreState: (restored) => setState({
+      ...restored,
+      signedInAs: state.signedInAs,
+      sessionToken: state.sessionToken,
+      emailVerified: state.emailVerified,
+    }),
     signIn: (email, token, verified) => setState((current) => ({ ...current, signedInAs: email, sessionToken: token, emailVerified: verified })),
     markVerified: () => setState((current) => ({ ...current, emailVerified: true })),
     dismissAlert: (id) => setState((current) => (
@@ -213,9 +257,16 @@ export function FinanceProvider({ children }: PropsWithChildren) {
         ? current
         : { ...current, dismissedAlertIds: [...(current.dismissedAlertIds ?? []), id] }
     )),
-    signOut: () => setState((current) => ({ ...current, signedInAs: undefined, sessionToken: undefined })),
+    signOut: () => setState((current) => ({ ...current, signedInAs: undefined, sessionToken: undefined, emailVerified: undefined })),
     setNotificationsEnabled: (notificationsEnabled) => setState((current) => ({ ...current, notificationsEnabled })),
-    resetDemo: () => setState((current) => ({ ...demoDataset, onboardingComplete: true, notificationsEnabled: current.notificationsEnabled, signedInAs: current.signedInAs })),
+    resetDemo: () => setState((current) => ({
+      ...demoDataset,
+      onboardingComplete: true,
+      notificationsEnabled: current.notificationsEnabled,
+      signedInAs: current.signedInAs,
+      sessionToken: current.sessionToken,
+      emailVerified: current.emailVerified,
+    })),
     eraseLocalData: async () => {
       await clearFinanceState();
       setState(initialState);
